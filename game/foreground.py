@@ -15,6 +15,11 @@ from properties.config import PROCESS_NAME, WINDOW_NAME
 
 logger = logging.getLogger('WindowManager')
 
+# Virtual-key for Alt — brief press unlocks SetForegroundWindow on modern Windows.
+VK_MENU = 0x12
+KEYEVENTF_KEYUP = 0x0002
+
+
 class WindowManager:
 	def __init__(self, windowName: str = WINDOW_NAME, preocessName: str = PROCESS_NAME):
 		self.user32 = ctypes.WinDLL('user32', use_last_error=True)
@@ -33,10 +38,69 @@ class WindowManager:
 		logger.debug(f"Window with WindowName: {self.windowName} and ProcessName: {self.preocessName}, not found.")
 		return None
 
+	@staticmethod
+	def minimizeByTitle(titleSubstring: str) -> None:
+		"""Minimize every top-level window whose title contains titleSubstring."""
+		matches: list[int] = []
+
+		def _enum(hwnd, _):
+			if not win32gui.IsWindowVisible(hwnd):
+				return
+			try:
+				title = win32gui.GetWindowText(hwnd)
+			except Exception:
+				return
+			if title and titleSubstring.lower() in title.lower():
+				matches.append(hwnd)
+
+		win32gui.EnumWindows(_enum, None)
+		for hwnd in matches:
+			try:
+				win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
+				logger.debug("Minimized window hwnd=%s title=%r", hwnd, win32gui.GetWindowText(hwnd))
+			except Exception as e:
+				logger.warning("Failed to minimize hwnd=%s: %s", hwnd, e)
+
+	@staticmethod
+	def restoreByTitle(titleSubstring: str) -> None:
+		"""Restore minimized windows matching titleSubstring and try to focus the first."""
+		matches: list[int] = []
+
+		def _enum(hwnd, _):
+			try:
+				title = win32gui.GetWindowText(hwnd)
+			except Exception:
+				return
+			if title and titleSubstring.lower() in title.lower():
+				matches.append(hwnd)
+
+		win32gui.EnumWindows(_enum, None)
+		for hwnd in matches:
+			try:
+				win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+			except Exception:
+				pass
+		if matches:
+			try:
+				win32gui.SetForegroundWindow(matches[0])
+			except Exception:
+				pass
+
+	def _altUnlock(self) -> None:
+		"""Synthetic Alt tap — common unlock for SetForegroundWindow restrictions."""
+		try:
+			self.user32.keybd_event(VK_MENU, 0, 0, 0)
+			time.sleep(0.02)
+			self.user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
+		except Exception as e:
+			logger.debug("Alt unlock failed: %s", e)
+
 	def _forceForeground(self, hwnd: int) -> None:
 		"""
 		Best-effort focus steal. Windows blocks SetForegroundWindow unless the
-		caller is foreground / attached; AttachThreadInput is the usual workaround.
+		caller is foreground / attached; AttachThreadInput + Alt unlock are the
+		usual workarounds. Called right after a UI button click so we usually
+		still hold foreground permission.
 		"""
 		foreground = win32gui.GetForegroundWindow()
 		if foreground == hwnd:
@@ -47,19 +111,35 @@ class WindowManager:
 		except Exception:
 			pass
 
+		self._altUnlock()
+
 		currentTid = win32api.GetCurrentThreadId()
 		fgTid, _ = win32process.GetWindowThreadProcessId(foreground) if foreground else (0, 0)
 		targetTid, _ = win32process.GetWindowThreadProcessId(hwnd)
 
-		attached = False
 		try:
 			if fgTid and fgTid != currentTid:
-				attached = bool(win32process.AttachThreadInput(currentTid, fgTid, True))
+				win32process.AttachThreadInput(currentTid, fgTid, True)
 			if targetTid and targetTid != currentTid and targetTid != fgTid:
 				win32process.AttachThreadInput(currentTid, targetTid, True)
 
 			win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
 			win32gui.BringWindowToTop(hwnd)
+			try:
+				win32gui.SetWindowPos(
+					hwnd,
+					win32con.HWND_TOPMOST,
+					0, 0, 0, 0,
+					win32con.SWP_NOMOVE | win32con.SWP_NOSIZE,
+				)
+				win32gui.SetWindowPos(
+					hwnd,
+					win32con.HWND_NOTOPMOST,
+					0, 0, 0, 0,
+					win32con.SWP_NOMOVE | win32con.SWP_NOSIZE,
+				)
+			except Exception:
+				pass
 			win32gui.SetForegroundWindow(hwnd)
 		except Exception as e:
 			logger.warning("Force foreground failed: %s", e)
@@ -71,50 +151,69 @@ class WindowManager:
 					win32process.AttachThreadInput(currentTid, targetTid, False)
 			except Exception:
 				pass
-			_ = attached
 
-	def setForeground(self) -> tuple:
-		"""Brings the window to the foreground and maximizes it."""
-		if self.window:
-			hwnd = self.window._hWnd
+	def setForeground(
+		self,
+		retries: int = 8,
+		settleSeconds: float = 0.25,
+		minimizeScanner: bool = True,
+	) -> tuple:
+		"""
+		Bring this window to the foreground.
+
+		When focusing the game for a scan (`minimizeScanner=True`), the Kamera
+		UI is minimized first so it cannot cover the capture region.
+		"""
+		if not self.window:
+			logger.debug(f"Cannot set {self.windowName} in foreground: window not found.")
+			return ("error", "Error", f"Cannot set {self.windowName} in foreground: window not found.")
+
+		if minimizeScanner and self.windowName == WINDOW_NAME:
+			self.minimizeByTitle('WuWa Inventory Kamera')
+			time.sleep(0.1)
+
+		hwnd = self.window._hWnd
+		for attempt in range(1, retries + 1):
 			try:
 				self.window.activate()
 			except Exception as e:
-				logger.warning("window.activate() failed: %s", e)
+				logger.debug("window.activate() attempt %s failed: %s", attempt, e)
 			try:
 				win32gui.PostMessage(hwnd, win32con.WM_ACTIVATE, win32con.WA_ACTIVE, 0)
 			except Exception as e:
-				# Elevated game process can deny PostMessage from a non-admin scanner.
-				logger.warning("PostMessage(WM_ACTIVATE) failed: %s", e)
+				logger.debug("PostMessage(WM_ACTIVATE) attempt %s failed: %s", attempt, e)
 
 			self._forceForeground(hwnd)
-			time.sleep(0.15)
+			time.sleep(settleSeconds)
 
 			fg = win32gui.GetForegroundWindow()
-			if fg != hwnd:
-				fgTitle = ""
-				try:
-					fgTitle = win32gui.GetWindowText(fg)
-				except Exception:
-					pass
-				logger.error(
-					"Game window is not foreground after activate "
-					"(fg_hwnd=%s title=%r game_hwnd=%s). "
-					"mss will capture whatever is on screen — usually Cursor/browser.",
-					fg, fgTitle, hwnd,
+			if fg == hwnd:
+				logger.debug(
+					"Window %s set to foreground on attempt %s.",
+					self.windowName, attempt,
 				)
-				return (
-					"error",
-					"Error",
-					"Game is covered by another window. Alt+Tab to Wuthering Waves "
-					"(ESC pause menu visible), run the scanner as Admin, then retry.",
-				)
+				return ("success", "Success", "pass")
 
-			logger.debug(f"Window {self.windowName} set to foreground.")
-			return ("success", "Success", "pass")
-		else:
-			logger.debug(f"Cannot set {self.windowName} in foreground: window not found.")
-			return ("error", "Error", f"Cannot set {self.windowName} in foreground: window not found.")
+			logger.debug(
+				"Foreground attempt %s/%s failed (fg=%s game=%s)",
+				attempt, retries, fg, hwnd,
+			)
+
+		fgTitle = ""
+		try:
+			fgTitle = win32gui.GetWindowText(win32gui.GetForegroundWindow())
+		except Exception:
+			pass
+		logger.error(
+			"Could not focus game after %s attempts (still on %r).",
+			retries, fgTitle,
+		)
+		return (
+			"error",
+			"Error",
+			"Could not switch to Wuthering Waves automatically. "
+			"Run Kamera as Admin, keep the game open, then press Start Scanning again.",
+		)
 
 	def getWindowPosition(self) -> pmc.Point|None:
 		"""Return the window's position."""

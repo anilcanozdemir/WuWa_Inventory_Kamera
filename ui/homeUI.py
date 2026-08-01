@@ -209,7 +209,7 @@ class LControlPanel(QFrame):
 		self.scanResources = CheckBox('Resources', self)
 		self.scanAchievements = CheckBox('Achievements', self)
 
-		self.closeLabel = BodyLabel("Press 'ENTER' to cancel the scan.")
+		self.closeLabel = BodyLabel("Start Scanning switches to the game. Press ENTER to cancel.")
 
 		self.openExportFolder = PushButton('Export Folder', icon=FIF.FOLDER, parent=self)
 		self.openExportFolder.clicked.connect(self.openFolder)

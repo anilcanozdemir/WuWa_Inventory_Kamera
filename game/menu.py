@@ -8,6 +8,7 @@ from scraping.utils.common import definedText
 from scraping.utils import (
     screenshot, imageToString, convertToBlackWhite
 )
+from scraping.utils.mouse_keyboard import WindowsInputController
 
 logger = logging.getLogger('MainMenuController')
 
@@ -32,15 +33,12 @@ def textLooksLikeTerminal(ocrText: str, expected: str, cutoff: float = 0.72) -> 
         return False
     if target in normalized or normalized in target:
         return True
-    # Compare against sliding windows around target length
-    window = max(len(target), 4)
+    if len(normalized) <= len(target) + 2:
+        return SequenceMatcher(None, normalized, target).ratio() >= cutoff
     best = 0.0
-    if len(normalized) <= window + 2:
-        best = SequenceMatcher(None, normalized, target).ratio()
-    else:
-        for i in range(0, len(normalized) - len(target) + 1):
-            chunk = normalized[i:i + len(target)]
-            best = max(best, SequenceMatcher(None, chunk, target).ratio())
+    for i in range(0, len(normalized) - len(target) + 1):
+        chunk = normalized[i:i + len(target)]
+        best = max(best, SequenceMatcher(None, chunk, target).ratio())
     return best >= cutoff
 
 
@@ -78,26 +76,50 @@ class MainMenuController:
             logger.error(f"Failed to capture or process screenshot: {e}", exc_info=True)
             return False
 
+    def _openPauseMenuIfNeeded(self, screenInfo) -> None:
+        """If Terminal is not visible, press ESC so the pause menu opens."""
+        if self.isMenu():
+            return
+        logger.info("Terminal not visible — pressing ESC to open pause menu.")
+        controller = WindowsInputController(screenInfo.monitor)
+        controller.pressKey('esc', 0.6)
+        time.sleep(0.4)
+
     def isInMainMenu(self):
         """
-        Checks if the application is in the main menu and handles errors if not.
+        Switch to the game from the scanner UI, open the pause menu if needed,
+        then verify Terminal is readable.
 
         Returns:
-            tuple: A tuple of three elements:
-                - Status code (str): Empty string on success, 'error' on failure.
-                - Status message (str): Descriptive message based on the result.
-                - Additional information (str): Empty string on success, error message on failure.
+            tuple: (status, title, detail) — status '' on success, 'error' on failure.
         """
         try:
-            result = WindowManager().setForeground()
+            game = WindowManager()
+            result = game.setForeground()
             if result[0] == 'error':
                 return result
-            time.sleep(.2)
 
-            if not self.isMenu():
-                return 'error', 'Error', 'Not in the main menu. Press ESC in-game and rerun the scanner.'
+            # Give the game a moment to present after focus steal.
+            time.sleep(0.35)
+            screenInfo = game.getScreenInfo()
 
-            return '', '', ''
+            # Up to 3 tries: focus is already on game; ESC opens Terminal if closed.
+            for attempt in range(1, 4):
+                if self.isMenu():
+                    logger.debug("Main menu ready on attempt %s", attempt)
+                    return '', '', ''
+                self._openPauseMenuIfNeeded(screenInfo)
+                # Re-focus in case ESC somehow bounced focus.
+                focus = game.setForeground()
+                if focus[0] == 'error':
+                    return focus
+
+            return (
+                'error',
+                'Error',
+                'Switched to the game but could not read the Terminal menu. '
+                'Use exclusive fullscreen / borderless at 1080p or 1440p, English UI, then retry.',
+            )
 
         except Exception as e:
             logger.error(f"Exception occurred: {e}", exc_info=True)

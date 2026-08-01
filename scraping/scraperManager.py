@@ -84,7 +84,14 @@ def managerStart(scraperEnabled: list):
 		else:
 			result = ('success', 'Complete', f'Scan completed without errors.')
 	
-	WindowManager('WuWa Inventory Kamera', 'WuWa Inventory Kamera.exe').setForeground()
+	# Bring the scanner UI back after the run (or after an early error).
+	WindowManager.restoreByTitle('WuWa Inventory Kamera')
+	try:
+		WindowManager('WuWa Inventory Kamera', 'WuWa Inventory Kamera.exe').setForeground(
+			minimizeScanner=False,
+		)
+	except Exception:
+		pass
 	return result
 
 

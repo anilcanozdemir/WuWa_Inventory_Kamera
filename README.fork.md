@@ -25,16 +25,20 @@ python -m venv .venv
 .\.venv\Scripts\python.exe tools\bootstrap_data.py
 ```
 
+## How Start Scanning should feel
+
+1. Game is running (exclusive fullscreen / borderless, 1080p or 1440p).
+2. Click **Start Scanning** in Kamera (Admin).
+3. Kamera minimizes itself, focuses Wuthering Waves, presses **ESC** if the
+   Terminal pause menu is not already open, then runs the scrapers.
+4. When finished (or on error), Kamera restores itself.
+
+You should not need to Alt+Tab manually.
+
 ## Debug a live scan failure
 
-1. Launch Wuthering Waves (prefer **exclusive fullscreen**, 1920×1080 or 2560×1440).
-2. Press **ESC** so the pause / Terminal menu is visible.
-3. **Leave the game on top** — do not keep Cursor/browser covering it. `mss` captures
-   pixels on screen; if Cursor is focused, OCR reads the IDE (this fork’s first
-   live capture did exactly that).
-4. Run from an elevated PowerShell if the game is elevated:
-
 ```powershell
+# Game running; you can stay in Kamera — debug_capture also tries auto-focus.
 .\.venv\Scripts\python.exe tools\debug_capture.py
 ```
 
