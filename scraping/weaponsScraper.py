@@ -7,7 +7,7 @@ import time
 from scraping.utils import weaponsID, itemsID
 from scraping.utils import (
     screenshot, convertToBlackWhite, imageToString,
-    WindowsInputController
+    WindowsInputController, GridPageScroller
 )
 from game.screenInfo import ScreenInfo
 from game.menu import MainMenuController
@@ -122,6 +122,7 @@ def weaponScraper(controller: WindowsInputController, x: float, y: float, screen
 
     weaponCount, pages = getWeaponPages(screenInfo)
     continueScraping = False
+    scroller = GridPageScroller(controller, screenInfo, screenInfo.weapons, ROWS, COLS, 'weapons')
 
     for page in range(pages):
         for row in range(ROWS):
@@ -141,8 +142,8 @@ def weaponScraper(controller: WindowsInputController, x: float, y: float, screen
                     del _cache
                     return inventory, weapons
 
-        if page < pages - 1 and continueScraping:
-            controller.mouseScroll(screenInfo.scroll.page.y, 1.2)
+        if page < pages - 1 and continueScraping and not scroller.scrollPage():
+            break
 
     del _cache
     return inventory, weapons

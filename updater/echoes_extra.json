@@ -1,0 +1,21 @@
+{
+  "_comment": "Echoes not yet present in Dimbreath/WutheringData MultiText. Merged into echoes.json by DataUpdater.updateEcho. IDs from wuthering.th.gl enemy pages.",
+  "smiter": 310000900,
+  "porcelainpicket": 310000910,
+  "stonepicket": 310000920,
+  "aureatepicket": 310000930,
+  "kernelpuppet:joy": 310000940,
+  "kernelpuppet:anger": 310000950,
+  "kernelpuppet:worry": 310000960,
+  "kernelpuppet:reflection": 310000970,
+  "kernelpuppet:grief": 310000980,
+  "kernelpuppet:fright": 310000990,
+  "foglionarch:body": 310001000,
+  "foglionarch:head": 310001010,
+  "smolder": 310001020,
+  "foglionarch": 320000670,
+  "forbiddenbastion": 320000680,
+  "myriadsnare:rustfirechassis": 340000300,
+  "thousand-puppetpavilion": 340000310,
+  "thousandpuppetpavilion": 340000310
+}

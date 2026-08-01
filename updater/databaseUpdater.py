@@ -185,7 +185,33 @@ class DataUpdater(QObject):
 			r'^MonsterInfo_(\d+)_Name$',
 			lambda text, match: text.lower().replace(' ', '') if int(match.group(1)) < 350000000 else None
 		)
+		# Dimbreath MultiText lags the live client; merge hand-curated IDs so
+		# newly released echoes (e.g. Forbidden Bastion) are not scanned as misses.
+		# Bundled extras live next to this module (data/ is gitignored).
+		extra = {}
+		for path in (
+			Path(__file__).resolve().parent / 'echoes_extra.json',
+			Path('data') / 'echoes_extra.json',
+		):
+			try:
+				payload = json.loads(path.read_text(encoding='utf-8'))
+			except (FileNotFoundError, json.JSONDecodeError, OSError):
+				continue
+			extra.update(payload)
+		added = 0
+		if data is None:
+			data = self.loadJson('echoes.json')
+		for key, value in extra.items():
+			if key.startswith('_') or not isinstance(value, int):
+				continue
+			if key not in data:
+				added += 1
+			data[key] = value
+		if added:
+			logger.info('Merged %s entries from echoes_extra.json', added)
+		self.saveJson(data, 'echoes.json')
 		if data:
+			echoesID.clear()
 			echoesID.update(data)
 
 	def updateAchievements(self):

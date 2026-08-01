@@ -47,6 +47,8 @@ COORDINATES = {
                 "page": Coordinates(200, 50, 130, 40),
                 "start": Coordinates(205, 122, 151, 181),
                 "echoCard": Coordinates(1296, 114, 558, 170),
+                # Circular set badge next to the +level text — no panel scroll needed.
+                "sonataIcon": Coordinates(1394, 196, 33, 33),
                 "sonata": Coordinates(1298, 397, 554, 467),
                 "mouseMovement": Coordinates(1576.5, 665.5),
                 "fullStatsName": Coordinates(1380, 430, 360, 380),
@@ -101,10 +103,18 @@ COORDINATES = {
             "terminal": Coordinates(187, 53, 200, 53),
             "shell": Coordinates(1673, 51, 220, 67),
             "offsets": {
-                "page": Coordinates(21, 32)
+                # Measured off a 1440p capture: card pitch is 235x283 with cards
+                # 193x235, so the gaps are 42x48. Scaling the 1080p gaps (16, 24)
+                # by 4/3 gave (21, 32), which put clicks only 70px below a card's
+                # top edge instead of centring them.
+                "page": Coordinates(42, 48)
             },
             "scroll": {
-                "page": Coordinates(y=-42),
+                # Wheel notches are resolution-independent: the game advances by
+                # row units, not raw pixels. Scaling the 1080p value (-31.25) by
+                # 4/3 to -42, then to a pixel-derived -64.46, made each "page"
+                # jump ~8 rows and skip half the inventory.
+                "page": Coordinates(y=-31.25),
                 "characters": Coordinates(y=-75),
                 "sonata": Coordinates(y=93)
             },
@@ -115,13 +125,13 @@ COORDINATES = {
                 "resources": Coordinates(109, 975),
             },
             "items": {
-                "start": Coordinates(273, 163, 201, 241),
+                "start": Coordinates(236, 185, 193, 235),
                 "info": Coordinates(1728, 152, 744, 371),
                 "description": Coordinates(1728, 152, 744, 1093)
             },
             "weapons": {
                 "page": Coordinates(267, 67, 173, 53),
-                "start": Coordinates(273, 163, 201, 241),
+                "start": Coordinates(236, 185, 193, 235),
                 "name": Coordinates(1740, 155, 727, 73),
                 "value": Coordinates(2207, 427, 253, 53),
                 "level": Coordinates(2213, 313, 240, 60),
@@ -129,8 +139,10 @@ COORDINATES = {
             },
             "echoes": {
                 "page": Coordinates(267, 67, 173, 53),
-                "start": Coordinates(273, 163, 201, 241),
+                "start": Coordinates(236, 185, 193, 235),
                 "echoCard": Coordinates(1728, 152, 744, 227),
+                # Circular set badge next to +level (measured off a 1440p capture).
+                "sonataIcon": Coordinates(1859, 261, 44, 44),
                 "sonata": Coordinates(1731, 529, 739, 623),
                 "mouseMovement": Coordinates(2102, 887),
                 "fullStatsName": Coordinates(1840, 573, 480, 507),
@@ -218,6 +230,7 @@ COORDINATES = {
                 "page": Coordinates(175, 40, 130, 40),
                 "start": Coordinates(180, 104, 130, 162),
                 "echoCard": Coordinates(1136, 152, 486, 152),
+                "sonataIcon": Coordinates(1220, 171, 29, 29),
                 "sonata": Coordinates(1135, 400, 486, 408),
                 "mouseMovement": Coordinates(1576.5, 665.5),
                 "fullStatsName": Coordinates(1200, 420, 320, 380),

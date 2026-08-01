@@ -8,7 +8,7 @@ from difflib import get_close_matches as getMatches
 from scraping.utils import itemsID
 from scraping.utils import (
     screenshot, imageToString, convertToBlackWhite,
-    WindowsInputController
+    WindowsInputController, GridPageScroller
 )
 from game.screenInfo import ScreenInfo
 from game.menu import MainMenuController, looksLikeTerminalFeatureNoise
@@ -80,6 +80,7 @@ def itemsScraper(START_DATE: str, controller: WindowsInputController, x: int, y:
 
     isDouble = False
     last = ""
+    scroller = GridPageScroller(controller, screenInfo, screenInfo.items, ROWS, COLS, 'items')
 
     while not isDouble:
         for row in range(ROWS):
@@ -110,8 +111,8 @@ def itemsScraper(START_DATE: str, controller: WindowsInputController, x: int, y:
             if isDouble:
                 break
         
-        if not isDouble:
-            controller.mouseScroll(screenInfo.scroll.page.y, 1.2)
+        if not isDouble and not scroller.scrollPage():
+            break
 
     # Process last page
     isDouble = False

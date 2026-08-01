@@ -10,3 +10,5 @@ from scraping.utils.common import (
 )
 
 from scraping.utils.mouse_keyboard import WindowsInputController
+
+from scraping.utils.gridScroll import GridPageScroller
