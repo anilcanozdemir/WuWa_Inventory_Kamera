@@ -4,6 +4,7 @@
 # Ignore specific folders
 dist/
 build/
+release/
 logs/
 data/
 export/

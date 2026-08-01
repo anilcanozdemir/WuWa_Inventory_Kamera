@@ -12,7 +12,7 @@ executables = [
 
 cx_Freeze.setup(
     name="WuWa Inventory Kamera",
-    version="1.7.1",
+    version="1.8.0",
     options={
         "build_exe": {
             "packages": ["rapidocr_onnxruntime"],
@@ -24,7 +24,7 @@ cx_Freeze.setup(
                 ("assets", "assets")
             ],
             "optimize": 2,
-            "build_exe": "dist/v1.7.1",
+            "build_exe": "dist/v1.8.0",
             "silent_level": 0,
             "include_msvcr": True,
         }
