@@ -93,6 +93,88 @@ COORDINATES = {
                     Coordinates(1170, 995)
                 ]
             }
+        },
+        # Calibrated against 2026-08-01 1440p recording (Overview name/level).
+        (2560, 1440): {
+            "terminal": Coordinates(187, 53, 200, 53),
+            "shell": Coordinates(1673, 51, 220, 67),
+            "offsets": {
+                "page": Coordinates(21, 32)
+            },
+            "scroll": {
+                "page": Coordinates(y=-42),
+                "characters": Coordinates(y=-75),
+                "sonata": Coordinates(y=93)
+            },
+            "scrapers": {
+                "weapons": Coordinates(109, 255),
+                "echoes": Coordinates(109, 435),
+                "devItems": Coordinates(109, 795),
+                "resources": Coordinates(109, 975),
+            },
+            "items": {
+                "start": Coordinates(273, 163, 201, 241),
+                "info": Coordinates(1728, 152, 744, 371),
+                "description": Coordinates(1728, 152, 744, 1093)
+            },
+            "weapons": {
+                "page": Coordinates(267, 67, 173, 53),
+                "start": Coordinates(273, 163, 201, 241),
+                "name": Coordinates(1740, 155, 727, 73),
+                "value": Coordinates(2207, 427, 253, 53),
+                "level": Coordinates(2213, 313, 240, 60),
+                "rank": Coordinates(1733, 707, 153, 67)
+            },
+            "echoes": {
+                "page": Coordinates(267, 67, 173, 53),
+                "start": Coordinates(273, 163, 201, 241),
+                "echoCard": Coordinates(1728, 152, 744, 227),
+                "sonata": Coordinates(1731, 529, 739, 623),
+                "mouseMovement": Coordinates(2102, 887),
+                "fullStatsName": Coordinates(1840, 573, 480, 507),
+                "fullStatsValue": Coordinates(2320, 573, 133, 507)
+            },
+            "achievements": {
+                "status": Coordinates(2105, 307, 341, 87),
+                "searchBar": Coordinates(517, 199),
+                "searchButton": Coordinates(839, 199),
+                "achievementsButton": Coordinates(2232, 1053),
+                "achievementsTab": Coordinates(1113, 760),
+            },
+            "characters": {
+                "offsets": {
+                    "leftSide": Coordinates(y=100),
+                    "rightSide": Coordinates(y=140),
+                    "skillPosition": Coordinates(y=340)
+                },
+                "leftSide": Coordinates(108, 254),
+                "rightSide": Coordinates(2418, 270),
+                "resonatorName": Coordinates(260, 248, 520, 56),
+                "resonatorLevel": Coordinates(260, 318, 420, 56),
+                "weaponName": Coordinates(343, 168, 364, 45),
+                "weaponLevel": Coordinates(340, 213, 147, 47),
+                "weaponRank": Coordinates(233, 473, 127, 47),
+                "skillClick": Coordinates(614, 1204),
+                "skillLevel": Coordinates(520, 133, 93, 53),
+                "skillButton": Coordinates(267, 1307, 160, 47),
+                "chainClick": Coordinates(1687, 180),
+                "chainButton": Coordinates(456, 1285, 147, 43),
+                "skillPositions": [
+                    Coordinates(1007, 1207),
+                    Coordinates(1313, 1020),
+                    Coordinates(1680, 940),
+                    Coordinates(2047, 1020),
+                    Coordinates(2347, 1207)
+                ],
+                "chainPositions": [
+                    Coordinates(1860, 187),
+                    Coordinates(2087, 407),
+                    Coordinates(2187, 713),
+                    Coordinates(2087, 1020),
+                    Coordinates(1867, 1247),
+                    Coordinates(1560, 1327)
+                ]
+            }
         }
     },
     (16, 10): {
