@@ -9,6 +9,7 @@ data/
 export/
 config/
 _test/
+debug_out/
 
 # Ignore assets
 assets/*

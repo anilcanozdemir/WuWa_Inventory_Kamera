@@ -1,14 +1,48 @@
 import time
 import logging
-from difflib import get_close_matches as getMatches
+import re
+from difflib import SequenceMatcher
 
 from game.foreground import WindowManager
 from scraping.utils.common import definedText
 from scraping.utils import (
-    screenshot, imageToString
+    screenshot, imageToString, convertToBlackWhite
 )
 
 logger = logging.getLogger('MainMenuController')
+
+TERMINAL_TEXT_KEY = 'PrefabTextItem_1547656443_Text'
+
+
+def normalizeMenuText(value: str) -> str:
+    """Match definedText.json normalization (lower, strip spaces/dashes)."""
+    return re.sub(r'[\s\-]+', '', (value or '').lower()).strip()
+
+
+def textLooksLikeTerminal(ocrText: str, expected: str, cutoff: float = 0.72) -> bool:
+    """
+    True when OCR of the Terminal ROI matches the expected Terminal label.
+
+    Uses substring containment plus fuzzy ratio so minor OCR noise
+    (O/0, missing letters, extra neighboring glyphs) still passes.
+    """
+    normalized = normalizeMenuText(ocrText)
+    target = normalizeMenuText(expected)
+    if not normalized or not target:
+        return False
+    if target in normalized or normalized in target:
+        return True
+    # Compare against sliding windows around target length
+    window = max(len(target), 4)
+    best = 0.0
+    if len(normalized) <= window + 2:
+        best = SequenceMatcher(None, normalized, target).ratio()
+    else:
+        for i in range(0, len(normalized) - len(target) + 1):
+            chunk = normalized[i:i + len(target)]
+            best = max(best, SequenceMatcher(None, chunk, target).ratio())
+    return best >= cutoff
+
 
 class MainMenuController:
     """Handles interactions with the screen and performs actions based on visual content."""
@@ -22,18 +56,24 @@ class MainMenuController:
         """
         try:
             screenInfo = WindowManager().getScreenInfo()
-            image = screenshot(
-                screenInfo.terminal.x,
-                screenInfo.terminal.y,
-                screenInfo.terminal.w,
-                screenInfo.terminal.h,
-                screenInfo.monitor
-            )
+            expected = definedText.get(TERMINAL_TEXT_KEY, 'terminal')
 
-            result = imageToString(image, '').lower()
-            logger.debug(f"Detected text from screenshot: '{result}'")
-            
-            return 'terminal' if getMatches(result, [definedText['PrefabTextItem_1547656443_Text']]) else False # MULTILANG
+            # Slightly larger than the baked ROI: post-3.3 UI shifts still land here.
+            x = max(0, int(screenInfo.terminal.x) - 20)
+            y = max(0, int(screenInfo.terminal.y) - 10)
+            w = int(screenInfo.terminal.w) + 60
+            h = int(screenInfo.terminal.h) + 30
+
+            image = screenshot(x, y, w, h, screenInfo.monitor)
+            raw = imageToString(image, '')
+            bw = imageToString(convertToBlackWhite(image), '')
+
+            matched = textLooksLikeTerminal(raw, expected) or textLooksLikeTerminal(bw, expected)
+            logger.debug(
+                "Main menu OCR raw=%r bw=%r expected=%r matched=%s roi=(%s,%s,%s,%s) monitor=%s",
+                raw, bw, expected, matched, x, y, w, h, screenInfo.monitor,
+            )
+            return matched
         except Exception as e:
             logger.error(f"Failed to capture or process screenshot: {e}", exc_info=True)
             return False

@@ -3,6 +3,7 @@ import mss
 import cv2
 import json
 import ctypes
+import logging
 import numpy as np
 import win32clipboard
 from pathlib import Path
@@ -97,6 +98,8 @@ def imageToString(
 ) -> str:
     try:
         ocrResults = ocr(image)[0]
+        if not ocrResults:
+            return ''
         
         banned_pattern = re.compile(f"[{re.escape(bannedChars)}]") if bannedChars else None
         allowed_pattern = re.compile(f"[^{re.escape(allowedChars)}]") if allowedChars else None
@@ -136,7 +139,8 @@ def imageToString(
         
         return '\n'.join(finalOutput).strip()
 
-    except:
+    except Exception as e:
+        logging.getLogger('OCR').debug("imageToString failed: %s", e, exc_info=True)
         return ''
 
 def isUserAdmin():
