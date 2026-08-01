@@ -2,12 +2,15 @@ import string
 import numpy as np
 from difflib import get_close_matches as getMatches
 
+import time
+
 from scraping.utils import weaponsID, itemsID
 from scraping.utils import (
     screenshot, convertToBlackWhite, imageToString,
     WindowsInputController
 )
 from game.screenInfo import ScreenInfo
+from game.menu import MainMenuController
 from properties.config import cfg
 
 # Constants
@@ -105,8 +108,16 @@ def weaponScraper(controller: WindowsInputController, x: float, y: float, screen
     inventory = dict()
     weapons = list()
     _cache = dict()
+    menu = MainMenuController()
+
+    if not menu.ensureGameplay(controller):
+        return inventory, weapons
 
     controller.pressKey(cfg.get(cfg.inventoryKeybind), 2, False)
+    time.sleep(0.4)
+    if menu.isMenu():
+        return inventory, weapons
+
     controller.leftClick(x, y)
 
     weaponCount, pages = getWeaponPages(screenInfo)

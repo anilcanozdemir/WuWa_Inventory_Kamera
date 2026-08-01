@@ -28,9 +28,18 @@ logger = logging.getLogger('ScraperManager')
 def managerStart(scraperEnabled: list):
 	global INVENTORY, FAILED
 	INVENTORY['date'] = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+	FAILED.clear()
+	INVENTORY['items'] = dict()
 
 	gameManager = WindowManager()
 	result = MainMenuController().isInMainMenu()
+	scanCounts = {
+		'characters': 0,
+		'weapons': 0,
+		'echoes': 0,
+		'items': 0,
+		'achievements': 0,
+	}
 
 	if result[0] != 'error':
 		time.sleep(1.2)
@@ -56,8 +65,11 @@ def managerStart(scraperEnabled: list):
 			while time.time() - startTime < timeout:
 				try:
 					scraperResult = queue.get_nowait()
-					INVENTORY['items'].update(scraperResult['inventory'])
-					FAILED.extend(scraperResult['failed'])
+					INVENTORY['items'].update(scraperResult.get('inventory') or {})
+					FAILED.extend(scraperResult.get('failed') or [])
+					for key, value in (scraperResult.get('counts') or {}).items():
+						if key in scanCounts:
+							scanCounts[key] = max(scanCounts[key], int(value))
 				except multiprocessing.queues.Empty:
 					break
 				except Exception as e:
@@ -72,6 +84,7 @@ def managerStart(scraperEnabled: list):
 					
 		except Exception as e:
 			logger.error(f"Fatal error processing queue: {e}", exc_info=True)
+			WindowManager.restoreByTitle('WuWa Inventory Kamera')
 			return ('failed', 'Queue processing error', str(e))
 		finally:
 			queue.close()
@@ -79,10 +92,24 @@ def managerStart(scraperEnabled: list):
 
 		savingScraped(START_DATE=INVENTORY['date'])
 
+		totalScraped = sum(scanCounts.values()) + len(INVENTORY['items'])
 		if len(FAILED) > 0:
 			result = ('failed', 'Failed to recognize', f'Failed to recognize {len(FAILED)} items.')
+		elif totalScraped == 0:
+			result = (
+				'warning',
+				'Nothing scanned',
+				'No characters/weapons/echoes/items were recognized. '
+				'Stay in English UI at 1080p/1440p; Start Scanning should leave Terminal before inventory clicks.',
+			)
 		else:
-			result = ('success', 'Complete', f'Scan completed without errors.')
+			result = (
+				'success',
+				'Complete',
+				f"Scan completed: {scanCounts['characters']} characters, "
+				f"{scanCounts['weapons']} weapons, {scanCounts['echoes']} echoes, "
+				f"{len(INVENTORY['items'])} items.",
+			)
 	
 	# Bring the scanner UI back after the run (or after an early error).
 	WindowManager.restoreByTitle('WuWa Inventory Kamera')
@@ -121,7 +148,10 @@ def scrapers(scraperEnabled: list, screenInfo: ScreenInfo, FLAG, queue: multipro
 		achievements = list()
 
 		for scraper in scraperEnabled:
+			# Close any open panels back toward a clean state, then each scraper
+			# verifies gameplay (not Terminal) before sending B/C hotkeys.
 			controller.pressKey('esc', .5)
+			time.sleep(0.25)
 
 			match(scraper):
 				case 'characters':
@@ -150,15 +180,40 @@ def scrapers(scraperEnabled: list, screenInfo: ScreenInfo, FLAG, queue: multipro
 
 		controller.pressKey('esc')
 
+		counts = {
+			'characters': len(resonator),
+			'weapons': len(weapons),
+			'echoes': len(echoes),
+			'items': len(inventory),
+			'achievements': len(achievements),
+		}
+
 		chunkSize = 20
 		inventoryItems = list(inventory.items())
-		
-		for i in range(0, len(inventoryItems), chunkSize):
-			chunk = dict(inventoryItems[i:i + chunkSize])
+
+		# Always report results — previously empty inventory skipped failed[] entirely
+		# and the UI lied with "Scan completed without errors".
+		if not inventoryItems:
 			queue.put({
-				'inventory': chunk,
-				'failed': failed[i:i + chunkSize] if failed else []
+				'inventory': {},
+				'failed': failed,
+				'counts': counts,
 			})
+		else:
+			for i in range(0, len(inventoryItems), chunkSize):
+				chunk = dict(inventoryItems[i:i + chunkSize])
+				queue.put({
+					'inventory': chunk,
+					'failed': failed[i:i + chunkSize] if i == 0 else [],
+					'counts': counts if i == 0 else {},
+				})
+			# leftover failed beyond first chunk
+			if len(failed) > chunkSize:
+				queue.put({
+					'inventory': {},
+					'failed': failed[chunkSize:],
+					'counts': {},
+				})
 			
 		FLAG.set()
 		savingScraped({
@@ -173,5 +228,6 @@ def scrapers(scraperEnabled: list, screenInfo: ScreenInfo, FLAG, queue: multipro
 		logger.error(f"Error in scrapers: {e}", exc_info=True)
 		queue.put({
 			'inventory': {},
-			'failed': []
+			'failed': [],
+			'counts': {},
 		})

@@ -1,5 +1,6 @@
 import os
 import cv2
+import time
 import string
 import numpy as np
 from difflib import get_close_matches as getMatches
@@ -13,6 +14,7 @@ from scraping.utils import (
     WindowsInputController
 )
 from game.screenInfo import ScreenInfo
+from game.menu import MainMenuController
 from properties.config import cfg
 
 # Constants
@@ -184,8 +186,16 @@ def processGridEcho(controller: WindowsInputController, screenInfo: ScreenInfo, 
 def echoScraper(controller: WindowsInputController, x: float, y: float, screenInfo: ScreenInfo) -> tuple[dict[str, int], list[dict[str, dict[str, int]]]]:
     echoes = list()
     _cache = dict()
+    menu = MainMenuController()
+
+    if not menu.ensureGameplay(controller):
+        return echoes
 
     controller.pressKey(cfg.get(cfg.inventoryKeybind), 2, False)
+    time.sleep(0.4)
+    if menu.isMenu():
+        return echoes
+
     controller.leftClick(x, y)
 
     echoCount, pages = getEchoPages(screenInfo)

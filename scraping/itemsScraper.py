@@ -11,6 +11,7 @@ from scraping.utils import (
     WindowsInputController
 )
 from game.screenInfo import ScreenInfo
+from game.menu import MainMenuController, looksLikeTerminalFeatureNoise
 from properties.config import cfg, basePATH
 
 # Constants
@@ -63,8 +64,18 @@ def itemsScraper(START_DATE: str, controller: WindowsInputController, x: int, y:
     failed = list()
     encounters = dict()
     _cache = dict()
+    menu = MainMenuController()
+
+    # Hotkeys only work from gameplay — never click the item grid on Terminal.
+    if not menu.ensureGameplay(controller):
+        return inventory, failed
 
     controller.pressKey(cfg.get(cfg.inventoryKeybind), 2, False)
+    time.sleep(0.4)
+    if menu.isMenu():
+        # Inventory key ignored (still on pause menu) — abort instead of clicking Podcast tiles.
+        return inventory, failed
+
     controller.leftClick(x, y)
 
     isDouble = False
@@ -80,6 +91,11 @@ def itemsScraper(START_DATE: str, controller: WindowsInputController, x: int, y:
                 image = screenshot(width=screenInfo.width, height=screenInfo.height, monitor=screenInfo.monitor)
                 
                 item_inventory, item_failed, name = processItem(path, image, screenInfo, _cache)
+                if looksLikeTerminalFeatureNoise(name) or menu.isMenu():
+                    # Wrong screen (e.g. Pioneer Podcast tiles) — stop immediately.
+                    del _cache
+                    return {}, []
+
                 inventory.update(item_inventory)
                 failed.extend(item_failed)
 

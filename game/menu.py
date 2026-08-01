@@ -14,6 +14,12 @@ logger = logging.getLogger('MainMenuController')
 
 TERMINAL_TEXT_KEY = 'PrefabTextItem_1547656443_Text'
 
+# OCR junk seen when scrapers click the Terminal feature grid instead of inventory.
+TERMINAL_FEATURE_MARKERS = (
+    'pioneer', 'convene', 'databank', 'wavesline', 'expedition', 'trophies',
+    'podcast', 'motorbike',
+)
+
 
 def normalizeMenuText(value: str) -> str:
     """Match definedText.json normalization (lower, strip spaces/dashes)."""
@@ -40,6 +46,12 @@ def textLooksLikeTerminal(ocrText: str, expected: str, cutoff: float = 0.72) -> 
         chunk = normalized[i:i + len(target)]
         best = max(best, SequenceMatcher(None, chunk, target).ratio())
     return best >= cutoff
+
+
+def looksLikeTerminalFeatureNoise(name: str) -> bool:
+    """True when an 'item name' is clearly a Terminal menu tile OCR."""
+    normalized = normalizeMenuText(name)
+    return any(marker in normalized for marker in TERMINAL_FEATURE_MARKERS)
 
 
 class MainMenuController:
@@ -76,19 +88,27 @@ class MainMenuController:
             logger.error(f"Failed to capture or process screenshot: {e}", exc_info=True)
             return False
 
-    def _openPauseMenuIfNeeded(self, screenInfo) -> None:
-        """If Terminal is not visible, press ESC so the pause menu opens."""
-        if self.isMenu():
-            return
-        logger.info("Terminal not visible — pressing ESC to open pause menu.")
-        controller = WindowsInputController(screenInfo.monitor)
-        controller.pressKey('esc', 0.6)
-        time.sleep(0.4)
+    def ensureGameplay(self, controller: WindowsInputController, maxEscapes: int = 2) -> bool:
+        """
+        Leave the Terminal pause menu so gameplay / hotkeys (B, C) work.
+
+        Returns True when Terminal is no longer detected.
+        """
+        for attempt in range(1, maxEscapes + 1):
+            if not self.isMenu():
+                return True
+            logger.info("Leaving Terminal pause menu (ESC attempt %s)", attempt)
+            controller.pressKey('esc', 0.55)
+            time.sleep(0.45)
+        stillOpen = self.isMenu()
+        if stillOpen:
+            logger.error("Still on Terminal after ESC — refusing to click inventory grid.")
+        return not stillOpen
 
     def isInMainMenu(self):
         """
-        Switch to the game from the scanner UI, open the pause menu if needed,
-        then verify Terminal is readable.
+        Switch to the game from the scanner UI and make sure Terminal is readable
+        once (scrapers then leave Terminal themselves via ESC).
 
         Returns:
             tuple: (status, title, detail) — status '' on success, 'error' on failure.
@@ -99,20 +119,20 @@ class MainMenuController:
             if result[0] == 'error':
                 return result
 
-            # Give the game a moment to present after focus steal.
-            time.sleep(0.35)
+            time.sleep(0.4)
             screenInfo = game.getScreenInfo()
 
-            # Up to 3 tries: focus is already on game; ESC opens Terminal if closed.
-            for attempt in range(1, 4):
-                if self.isMenu():
-                    logger.debug("Main menu ready on attempt %s", attempt)
-                    return '', '', ''
-                self._openPauseMenuIfNeeded(screenInfo)
-                # Re-focus in case ESC somehow bounced focus.
-                focus = game.setForeground()
-                if focus[0] == 'error':
-                    return focus
+            if self.isMenu():
+                logger.debug("Terminal already visible after focus")
+                return '', '', ''
+
+            # One ESC only — do not spam; scrapers also press ESC.
+            logger.info("Terminal not visible — pressing ESC once to open pause menu.")
+            WindowsInputController(screenInfo.monitor).pressKey('esc', 0.6)
+            time.sleep(0.5)
+
+            if self.isMenu():
+                return '', '', ''
 
             return (
                 'error',

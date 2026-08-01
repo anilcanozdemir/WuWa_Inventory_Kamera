@@ -11,6 +11,7 @@ from scraping.utils import (
     WindowsInputController
 )
 from game.screenInfo import ScreenInfo
+from game.menu import MainMenuController
 from properties.config import cfg
 
 logger = logging.getLogger('CharacterScraper')
@@ -215,8 +216,15 @@ def resonatorScraper(controller: WindowsInputController, screenInfo: ScreenInfo)
         )
     )
     _cache = dict()
+    menu = MainMenuController()
+
+    if not menu.ensureGameplay(controller):
+        return dict(characters)
 
     controller.pressKey(cfg.get(cfg.resonatorKeybind), 2, False)
+    time.sleep(0.4)
+    if menu.isMenu():
+        return dict(characters)
 
     isDouble = False
     xLeftSide, yLeftSide = screenInfo.characters.leftSide.x, screenInfo.characters.leftSide.y

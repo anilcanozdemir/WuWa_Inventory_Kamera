@@ -8,7 +8,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from game.menu import normalizeMenuText, textLooksLikeTerminal
+from game.menu import (
+    looksLikeTerminalFeatureNoise,
+    normalizeMenuText,
+    textLooksLikeTerminal,
+)
 
 
 def expect(cond: bool, msg: str) -> None:
@@ -24,9 +28,14 @@ def main() -> int:
     expect(textLooksLikeTerminal("TERMINAL", "terminal"), "case")
     expect(textLooksLikeTerminal("Terminal\nGuide", "terminal"), "extra line")
     expect(textLooksLikeTerminal("Termina1", "terminal"), "ocr noise")
+    expect(textLooksLikeTerminal("erminal", "terminal"), "missing T")
     expect(not textLooksLikeTerminal("", "terminal"), "empty")
     expect(not textLooksLikeTerminal("thumaczgoogleyoutube", "terminal"), "wrong monitor")
     expect(not textLooksLikeTerminal("github.co", "terminal"), "browser leak")
+
+    expect(looksLikeTerminalFeatureNoise("pioneerconvenepodcast"), "podcast junk")
+    expect(looksLikeTerminalFeatureNoise("Data Bank"), "databank junk")
+    expect(not looksLikeTerminalFeatureNoise("blazingclaw"), "real item")
 
     print("ok: menu text matching")
     return 0
