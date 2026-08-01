@@ -67,11 +67,11 @@ def itemsScraper(START_DATE: str, controller: WindowsInputController, x: int, y:
     menu = MainMenuController()
 
     # Hotkeys only work from gameplay — never click the item grid on Terminal.
-    if not menu.ensureGameplay(controller):
+    if menu.isMenu() and not menu.ensureGameplay(controller):
         return inventory, failed
 
     controller.pressKey(cfg.get(cfg.inventoryKeybind), 2, False)
-    time.sleep(0.4)
+    time.sleep(0.5)
     if menu.isMenu():
         # Inventory key ignored (still on pause menu) — abort instead of clicking Podcast tiles.
         return inventory, failed

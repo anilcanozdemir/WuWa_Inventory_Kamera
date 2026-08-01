@@ -5,8 +5,9 @@ import signal
 import logging
 import multiprocessing
 from datetime import datetime
+from pathlib import Path
 
-from properties.config import FAILED, INVENTORY
+from properties.config import FAILED, INVENTORY, basePATH
 from scraping.utils import (
 	WindowsInputController, savingScraped
 )
@@ -42,12 +43,15 @@ def managerStart(scraperEnabled: list):
 	}
 
 	if result[0] != 'error':
-		time.sleep(1.2)
+		time.sleep(1.0)
 
 		completeFLAG = multiprocessing.Event()
 		queue = multiprocessing.Queue()
 		
-		scrapersProcess = multiprocessing.Process(target=scrapers, args=(scraperEnabled, gameManager.getScreenInfo(), completeFLAG, queue, INVENTORY['date']))
+		scrapersProcess = multiprocessing.Process(
+			target=scrapers,
+			args=(scraperEnabled, gameManager.getScreenInfo(), completeFLAG, queue, INVENTORY['date']),
+		)
 		scrapersProcess.start()
 
 		stopMonitor = multiprocessing.Process(target=needToStop, args=(scrapersProcess.pid, completeFLAG))
@@ -92,15 +96,28 @@ def managerStart(scraperEnabled: list):
 
 		savingScraped(START_DATE=INVENTORY['date'])
 
-		totalScraped = sum(scanCounts.values()) + len(INVENTORY['items'])
+		# Shell credit 0 is not a real scan result.
+		meaningfulItems = {
+			k: v for k, v in INVENTORY['items'].items()
+			if not (str(k) == '2' and not v)
+		}
+		totalScraped = (
+			scanCounts['characters']
+			+ scanCounts['weapons']
+			+ scanCounts['echoes']
+			+ scanCounts['achievements']
+			+ len(meaningfulItems)
+		)
+		logger.info("Scan counts=%s items=%s failed=%s", scanCounts, len(meaningfulItems), len(FAILED))
+
 		if len(FAILED) > 0:
 			result = ('failed', 'Failed to recognize', f'Failed to recognize {len(FAILED)} items.')
 		elif totalScraped == 0:
 			result = (
 				'warning',
 				'Nothing scanned',
-				'No characters/weapons/echoes/items were recognized. '
-				'Stay in English UI at 1080p/1440p; Start Scanning should leave Terminal before inventory clicks.',
+				'No resonators/weapons/echoes/items were recognized. '
+				'Check logs/scraper-child.log. Prefer only Characters first.',
 			)
 		else:
 			result = (
@@ -108,10 +125,9 @@ def managerStart(scraperEnabled: list):
 				'Complete',
 				f"Scan completed: {scanCounts['characters']} characters, "
 				f"{scanCounts['weapons']} weapons, {scanCounts['echoes']} echoes, "
-				f"{len(INVENTORY['items'])} items.",
+				f"{len(meaningfulItems)} items.",
 			)
 	
-	# Bring the scanner UI back after the run (or after an early error).
 	WindowManager.restoreByTitle('WuWa Inventory Kamera')
 	try:
 		WindowManager('WuWa Inventory Kamera', 'WuWa Inventory Kamera.exe').setForeground(
@@ -123,23 +139,45 @@ def managerStart(scraperEnabled: list):
 
 
 def needToStop(tPID, completeFLAG):
+	"""Cancel only on ENTER. Do NOT kill on focus loss — that aborted real scans."""
 	keyPress = KeyPressChecker()
-	gameManager = WindowManager()
 
 	while not completeFLAG.is_set():
-		# Check if the game is no longer in the foreground or if the key is pressed
-		if not gameManager.isForeground() or keyPress.isPressed():
+		if keyPress.isPressed():
 			try:
 				os.kill(tPID, signal.SIGTERM)
-				logger.debug("Terminated scraper process due to key press or game not in foreground.")
+				logging.getLogger('ScraperManager').debug(
+					"Terminated scraper process because ENTER was pressed."
+				)
 			except Exception as e:
-				logger.error(f"Error terminating process: {e}", exc_info=True)
+				logging.getLogger('ScraperManager').error(
+					f"Error terminating process: {e}", exc_info=True
+				)
 			sys.exit(0)
-		time.sleep(.1)
+		time.sleep(0.1)
+
+
+def _configureChildLogging():
+	logDir = Path(basePATH) / 'logs'
+	logDir.mkdir(parents=True, exist_ok=True)
+	logFile = logDir / 'scraper-child.log'
+	root = logging.getLogger()
+	root.setLevel(logging.DEBUG)
+	# Avoid duplicate handlers if re-run in-process
+	if not any(isinstance(h, logging.FileHandler) and getattr(h, 'baseFilename', '').endswith('scraper-child.log') for h in root.handlers):
+		fh = logging.FileHandler(logFile, encoding='utf-8', mode='w')
+		fh.setFormatter(logging.Formatter('%(asctime)s|%(levelname)s|%(name)s|%(message)s'))
+		root.addHandler(fh)
+	return logFile
+
 
 def scrapers(scraperEnabled: list, screenInfo: ScreenInfo, FLAG, queue: multiprocessing.Queue, START_DATE: str):
 	try:
+		logFile = _configureChildLogging()
+		logger.info("Child scraper started enabled=%s log=%s", scraperEnabled, logFile)
+
 		controller = WindowsInputController(screenInfo.monitor)
+		menu = MainMenuController()
 		resonator = dict()
 		inventory = dict()
 		failed = list()
@@ -147,31 +185,53 @@ def scrapers(scraperEnabled: list, screenInfo: ScreenInfo, FLAG, queue: multipro
 		echoes = list()
 		achievements = list()
 
+		# Leave Terminal once up front. Do not ESC before every scraper —
+		# that re-opens Terminal from gameplay and cancels hotkeys.
+		if not menu.ensureGameplay(controller, maxEscapes=3):
+			logger.error("Could not leave Terminal — aborting all scrapers")
+			queue.put({
+				'inventory': {},
+				'failed': [],
+				'counts': {},
+			})
+			FLAG.set()
+			return
+
 		for scraper in scraperEnabled:
-			# Close any open panels back toward a clean state, then each scraper
-			# verifies gameplay (not Terminal) before sending B/C hotkeys.
-			controller.pressKey('esc', .5)
-			time.sleep(0.25)
+			logger.info("Running scraper: %s", scraper)
+			# Between scrapers, close open panels without toggling Terminal twice.
+			if scraper != scraperEnabled[0]:
+				controller.pressKey('esc', 0.45)
+				time.sleep(0.35)
+				if not menu.ensureGameplay(controller, maxEscapes=2):
+					logger.error("Stuck on Terminal before %s — skipping", scraper)
+					continue
 
 			match(scraper):
 				case 'characters':
 					resonator = resonatorScraper(controller, screenInfo)
+					logger.info("Characters scraped: %s", len(resonator))
 				case 'weapons':
 					i, w = weaponScraper(controller, screenInfo.scrapers.weapons.x, screenInfo.scrapers.weapons.y, screenInfo)
 					inventory.update(i)
 					weapons.extend(w)
+					logger.info("Weapons scraped: %s", len(weapons))
 				case 'echoes':
 					echoes = echoScraper(controller, screenInfo.scrapers.echoes.x, screenInfo.scrapers.echoes.y, screenInfo)
+					logger.info("Echoes scraped: %s", len(echoes))
 				case 'devItems':
 					i, f = itemsScraper(START_DATE, controller, screenInfo.scrapers.devItems.x, screenInfo.scrapers.devItems.y, screenInfo)
 					inventory.update(i)
 					failed.extend(f)
+					logger.info("Dev items scraped: %s failed=%s", len(i), len(f))
 				case 'resources':
 					i, f = itemsScraper(START_DATE, controller, screenInfo.scrapers.resources.x, screenInfo.scrapers.resources.y, screenInfo)
 					inventory.update(i)
 					failed.extend(f)
+					logger.info("Resources scraped: %s failed=%s", len(i), len(f))
 				case 'achievements':
 					achievements = achievementScraper(controller, screenInfo)
+					logger.info("Achievements scraped: %s", len(achievements))
 
 			if scraper not in ['characters', 'achievements']:
 				if '2' not in inventory or inventory.get('2') == 0:
@@ -187,12 +247,11 @@ def scrapers(scraperEnabled: list, screenInfo: ScreenInfo, FLAG, queue: multipro
 			'items': len(inventory),
 			'achievements': len(achievements),
 		}
+		logger.info("Finished scrapers counts=%s", counts)
 
 		chunkSize = 20
 		inventoryItems = list(inventory.items())
 
-		# Always report results — previously empty inventory skipped failed[] entirely
-		# and the UI lied with "Scan completed without errors".
 		if not inventoryItems:
 			queue.put({
 				'inventory': {},
@@ -207,7 +266,6 @@ def scrapers(scraperEnabled: list, screenInfo: ScreenInfo, FLAG, queue: multipro
 					'failed': failed[i:i + chunkSize] if i == 0 else [],
 					'counts': counts if i == 0 else {},
 				})
-			# leftover failed beyond first chunk
 			if len(failed) > chunkSize:
 				queue.put({
 					'inventory': {},

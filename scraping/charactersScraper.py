@@ -218,12 +218,16 @@ def resonatorScraper(controller: WindowsInputController, screenInfo: ScreenInfo)
     _cache = dict()
     menu = MainMenuController()
 
-    if not menu.ensureGameplay(controller):
+    if menu.isMenu() and not menu.ensureGameplay(controller):
+        logger.error("Characters: still on Terminal, aborting")
         return dict(characters)
 
-    controller.pressKey(cfg.get(cfg.resonatorKeybind), 2, False)
-    time.sleep(0.4)
+    key = cfg.get(cfg.resonatorKeybind)
+    logger.info("Characters: pressing resonator key %r", key)
+    controller.pressKey(key, 2, False)
+    time.sleep(0.6)
     if menu.isMenu():
+        logger.error("Characters: Terminal still open after %r — hotkey ignored", key)
         return dict(characters)
 
     isDouble = False

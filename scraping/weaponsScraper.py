@@ -110,11 +110,11 @@ def weaponScraper(controller: WindowsInputController, x: float, y: float, screen
     _cache = dict()
     menu = MainMenuController()
 
-    if not menu.ensureGameplay(controller):
+    if menu.isMenu() and not menu.ensureGameplay(controller):
         return inventory, weapons
 
     controller.pressKey(cfg.get(cfg.inventoryKeybind), 2, False)
-    time.sleep(0.4)
+    time.sleep(0.5)
     if menu.isMenu():
         return inventory, weapons
 

@@ -188,11 +188,11 @@ def echoScraper(controller: WindowsInputController, x: float, y: float, screenIn
     _cache = dict()
     menu = MainMenuController()
 
-    if not menu.ensureGameplay(controller):
+    if menu.isMenu() and not menu.ensureGameplay(controller):
         return echoes
 
     controller.pressKey(cfg.get(cfg.inventoryKeybind), 2, False)
-    time.sleep(0.4)
+    time.sleep(0.5)
     if menu.isMenu():
         return echoes
 
