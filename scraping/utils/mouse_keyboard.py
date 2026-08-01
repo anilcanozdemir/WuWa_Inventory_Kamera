@@ -126,8 +126,44 @@ class WindowsInputController:
         """
         x = int(x) + self.monitor["left"]
         y = int(y) + self.monitor["top"]
-        win32api.SetCursorPos((x, y))
+        try:
+            win32api.SetCursorPos((x, y))
+        except Exception:
+            # Fallback: absolute SendInput across the virtual desktop.
+            self._sendInputMove(x, y)
         time.sleep(waitTime)
+
+    @staticmethod
+    def _sendInputMove(x: int, y: int) -> None:
+        import ctypes
+        from ctypes import wintypes
+
+        class MOUSEINPUT(ctypes.Structure):
+            _fields_ = (
+                ("dx", wintypes.LONG),
+                ("dy", wintypes.LONG),
+                ("mouseData", wintypes.DWORD),
+                ("dwFlags", wintypes.DWORD),
+                ("time", wintypes.DWORD),
+                ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
+            )
+
+        class INPUT(ctypes.Structure):
+            class _I(ctypes.Union):
+                _fields_ = (("mi", MOUSEINPUT),)
+            _anonymous_ = ("i",)
+            _fields_ = (("type", wintypes.DWORD), ("i", _I))
+
+        # Normalize to 0..65535 over the virtual screen (multi-monitor safe).
+        vx = win32api.GetSystemMetrics(76)  # SM_XVIRTUALSCREEN
+        vy = win32api.GetSystemMetrics(77)  # SM_YVIRTUALSCREEN
+        vw = win32api.GetSystemMetrics(78)  # SM_CXVIRTUALSCREEN
+        vh = win32api.GetSystemMetrics(79)  # SM_CYVIRTUALSCREEN
+        absX = int((x - vx) * 65535 / max(vw - 1, 1))
+        absY = int((y - vy) * 65535 / max(vh - 1, 1))
+        flags = win32con.MOUSEEVENTF_MOVE | win32con.MOUSEEVENTF_ABSOLUTE | 0x4000  # VIRTUALDESK
+        inp = INPUT(type=0, mi=MOUSEINPUT(absX, absY, 0, flags, 0, None))
+        ctypes.windll.user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(INPUT))
     
     def leftClick(self, x: Union[int, float], y: Union[int, float], waitTime: float = 0.1) -> None:
         """
@@ -139,10 +175,14 @@ class WindowsInputController:
             waitTime (float, optional): Time to wait after clicking. Defaults to 0.1.
         """
         self.moveMouse(x, y)
-        x, y = win32api.GetCursorPos()
-        
-        win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, x, y, 0, 0)
-        win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, x, y, 0, 0)
+        try:
+            cx, cy = win32api.GetCursorPos()
+        except Exception:
+            cx = int(x) + self.monitor["left"]
+            cy = int(y) + self.monitor["top"]
+
+        win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, cx, cy, 0, 0)
+        win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, cx, cy, 0, 0)
         time.sleep(waitTime)
     
     @classmethod

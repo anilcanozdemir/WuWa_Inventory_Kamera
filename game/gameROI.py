@@ -67,6 +67,8 @@ COORDINATES = {
                 },
                 "leftSide": Coordinates(82, 191),
                 "rightSide": Coordinates(1814, 203.50),
+                # Terminal pause-menu grid → Resonators tile (scaled from 1440p calib).
+                "terminalResonators": Coordinates(863, 525),
                 "resonatorName": Coordinates(250, 110, 280, 50),
                 "resonatorLevel": Coordinates(180, 200, 135, 80),
                 "weaponName": Coordinates(257, 126, 273, 34),
@@ -149,6 +151,8 @@ COORDINATES = {
                 },
                 "leftSide": Coordinates(108, 254),
                 "rightSide": Coordinates(2418, 270),
+                # Live-calibrated on Terminal grid (Resonators tile center).
+                "terminalResonators": Coordinates(1150, 700),
                 "resonatorName": Coordinates(260, 248, 520, 56),
                 "resonatorLevel": Coordinates(260, 318, 420, 56),
                 "weaponName": Coordinates(343, 168, 364, 45),

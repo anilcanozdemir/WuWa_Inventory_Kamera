@@ -302,24 +302,30 @@ def resonatorScraper(controller: WindowsInputController, screenInfo: ScreenInfo)
     _cache: dict = {}
     menu = MainMenuController()
 
-    if menu.isMenu() and not menu.ensureGameplay(controller):
-        logger.error("Characters: still on Terminal, aborting")
-        return dict(characters)
-
-    key = cfg.get(cfg.resonatorKeybind)
-    logger.info("Characters: pressing resonator key %r", key)
-    controller.pressKey(key, 2, False)
-    time.sleep(0.8)
+    if menu.isMenu():
+        # From Terminal, click the Resonators tile — ESC+C is unreliable and was
+        # leaving us stuck on Terminal (live debug 2026-08-01).
+        tile = getattr(screenInfo.characters, "terminalResonators", None)
+        if tile is None:
+            logger.error("Characters: no terminalResonators coordinate for this resolution")
+            return dict(characters)
+        logger.info("Characters: on Terminal — clicking Resonators at (%s,%s)", tile.x, tile.y)
+        controller.leftClick(tile.x, tile.y, 0.3)
+        time.sleep(1.2)
+    else:
+        key = cfg.get(cfg.resonatorKeybind)
+        logger.info("Characters: pressing resonator key %r", key)
+        controller.pressKey(key, 2, False)
+        time.sleep(0.8)
 
     if menu.isMenu():
-        logger.error("Characters: Terminal still open after %r — hotkey ignored", key)
+        logger.error("Characters: still on Terminal after open attempt")
         return dict(characters)
 
     if not isOnResonatorOverview(screenInfo):
-        # One retry: hotkey sometimes opens the menu mid-animation.
-        time.sleep(0.6)
+        time.sleep(0.7)
         if not isOnResonatorOverview(screenInfo):
-            logger.error("Characters: Overview screen not detected after %r", key)
+            logger.error("Characters: Overview screen not detected after open attempt")
             return dict(characters)
 
     # Stay on Overview — never click Forte/Chain (mis-clicks → world attacks).

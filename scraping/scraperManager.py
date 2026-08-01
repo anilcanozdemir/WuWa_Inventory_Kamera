@@ -185,27 +185,19 @@ def scrapers(scraperEnabled: list, screenInfo: ScreenInfo, FLAG, queue: multipro
 		echoes = list()
 		achievements = list()
 
-		# Leave Terminal once up front. Do not ESC before every scraper —
-		# that re-opens Terminal from gameplay and cancels hotkeys.
-		if not menu.ensureGameplay(controller, maxEscapes=3):
-			logger.error("Could not leave Terminal — aborting all scrapers")
-			queue.put({
-				'inventory': {},
-				'failed': [],
-				'counts': {},
-			})
-			FLAG.set()
-			return
-
 		for scraper in scraperEnabled:
 			logger.info("Running scraper: %s", scraper)
-			# Between scrapers, close open panels without toggling Terminal twice.
-			if scraper != scraperEnabled[0]:
+
+			# Characters can open from the Terminal Resonators tile. Other scrapers
+			# need gameplay + inventory hotkeys, so leave Terminal for those.
+			if scraper != 'characters':
+				if menu.isMenu() and not menu.ensureGameplay(controller, maxEscapes=3):
+					logger.error("Could not leave Terminal before %s — skipping", scraper)
+					continue
+			elif scraper != scraperEnabled[0]:
+				# Returning to Terminal/game between scrapers
 				controller.pressKey('esc', 0.45)
 				time.sleep(0.35)
-				if not menu.ensureGameplay(controller, maxEscapes=2):
-					logger.error("Stuck on Terminal before %s — skipping", scraper)
-					continue
 
 			match(scraper):
 				case 'characters':
