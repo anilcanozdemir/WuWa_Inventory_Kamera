@@ -12,7 +12,7 @@ executables = [
 
 cx_Freeze.setup(
     name="WuWa Inventory Kamera",
-    version="1.9.0",
+    version="1.9.1",
     options={
         "build_exe": {
             "packages": ["rapidocr_onnxruntime"],
@@ -27,9 +27,11 @@ cx_Freeze.setup(
                 ("updater/character_aliases.json", "lib/updater/character_aliases.json"),
                 ("updater/sonata_extra.json", "lib/updater/sonata_extra.json"),
                 ("updater/roster_page_jump.json", "lib/updater/roster_page_jump.json"),
+                ("updater/items_extra.json", "lib/updater/items_extra.json"),
+                ("updater/weapons_extra.json", "lib/updater/weapons_extra.json"),
             ],
             "optimize": 2,
-            "build_exe": "dist/v1.9.0",
+            "build_exe": "dist/v1.9.1",
             "silent_level": 0,
             "include_msvcr": True,
         }
