@@ -40,6 +40,8 @@ def managerStart(scraperEnabled: list):
 		'echoes': 0,
 		'items': 0,
 		'achievements': 0,
+		'echoExpected': 0,
+		'weaponExpected': 0,
 	}
 
 	if result[0] != 'error':
@@ -110,6 +112,14 @@ def managerStart(scraperEnabled: list):
 		)
 		logger.info("Scan counts=%s items=%s failed=%s", scanCounts, len(meaningfulItems), len(FAILED))
 
+		shortfalls = []
+		echoExpected = int(scanCounts.get('echoExpected') or 0)
+		weaponExpected = int(scanCounts.get('weaponExpected') or 0)
+		if echoExpected and scanCounts['echoes'] < echoExpected:
+			shortfalls.append(f"echoes {scanCounts['echoes']}/{echoExpected}")
+		if weaponExpected and scanCounts['weapons'] < weaponExpected:
+			shortfalls.append(f"weapons {scanCounts['weapons']}/{weaponExpected}")
+
 		if len(FAILED) > 0:
 			result = ('failed', 'Failed to recognize', f'Failed to recognize {len(FAILED)} items.')
 		elif totalScraped == 0:
@@ -118,6 +128,14 @@ def managerStart(scraperEnabled: list):
 				'Nothing scanned',
 				'No resonators/weapons/echoes/items were recognized. '
 				'Check logs/scraper-child.log. Prefer only Characters first.',
+			)
+		elif shortfalls:
+			result = (
+				'warning',
+				'Incomplete scan',
+				'Shortfall: ' + ', '.join(shortfalls) + '. '
+				f"Got {scanCounts['characters']} characters, "
+				f"{scanCounts['weapons']} weapons, {scanCounts['echoes']} echoes.",
 			)
 		else:
 			result = (
@@ -184,13 +202,21 @@ def scrapers(scraperEnabled: list, screenInfo: ScreenInfo, FLAG, queue: multipro
 		weapons = list()
 		echoes = list()
 		achievements = list()
+		echoExpected = 0
+		weaponExpected = 0
 
 		for scraper in scraperEnabled:
 			logger.info("Running scraper: %s", scraper)
 
 			# Characters can open from the Terminal Resonators tile. Other scrapers
-			# need gameplay + inventory hotkeys, so leave Terminal for those.
+			# need gameplay + inventory hotkeys. Overview is not Terminal, so always
+			# ESC out of character UI before backpack scrapers.
 			if scraper != 'characters':
+				for _ in range(3):
+					controller.pressKey('esc', 0.4)
+					time.sleep(0.35)
+					if menu.isMenu():
+						break
 				if menu.isMenu() and not menu.ensureGameplay(controller, maxEscapes=3):
 					logger.error("Could not leave Terminal before %s — skipping", scraper)
 					continue
@@ -204,13 +230,13 @@ def scrapers(scraperEnabled: list, screenInfo: ScreenInfo, FLAG, queue: multipro
 					resonator = resonatorScraper(controller, screenInfo)
 					logger.info("Characters scraped: %s", len(resonator))
 				case 'weapons':
-					i, w = weaponScraper(controller, screenInfo.scrapers.weapons.x, screenInfo.scrapers.weapons.y, screenInfo)
+					i, w, weaponExpected = weaponScraper(controller, screenInfo.scrapers.weapons.x, screenInfo.scrapers.weapons.y, screenInfo)
 					inventory.update(i)
 					weapons.extend(w)
-					logger.info("Weapons scraped: %s", len(weapons))
+					logger.info("Weapons scraped: %s (expected %s)", len(weapons), weaponExpected)
 				case 'echoes':
-					echoes = echoScraper(controller, screenInfo.scrapers.echoes.x, screenInfo.scrapers.echoes.y, screenInfo)
-					logger.info("Echoes scraped: %s", len(echoes))
+					echoes, echoExpected = echoScraper(controller, screenInfo.scrapers.echoes.x, screenInfo.scrapers.echoes.y, screenInfo)
+					logger.info("Echoes scraped: %s (expected %s)", len(echoes), echoExpected)
 				case 'devItems':
 					i, f = itemsScraper(START_DATE, controller, screenInfo.scrapers.devItems.x, screenInfo.scrapers.devItems.y, screenInfo)
 					inventory.update(i)
@@ -238,6 +264,8 @@ def scrapers(scraperEnabled: list, screenInfo: ScreenInfo, FLAG, queue: multipro
 			'echoes': len(echoes),
 			'items': len(inventory),
 			'achievements': len(achievements),
+			'echoExpected': echoExpected,
+			'weaponExpected': weaponExpected,
 		}
 		logger.info("Finished scrapers counts=%s", counts)
 

@@ -114,7 +114,8 @@ class Config(QConfig):
 	# TControlPanel settings
 	echoMinRarity = ConfigItem("Scanner", "EchoMinRarity", 1, RangeValidator(1, 5))
 	echoMinLevel = ConfigItem("Scanner", "EchoMinLevel", 0, RangeValidator(0, 25))
-	weaponsMinRarity = ConfigItem("Scanner", "WeaponsMinRarity", 1, RangeValidator(1, 5))
+	# Purple (4★) and above by default — skip blue/green commons.
+	weaponsMinRarity = ConfigItem("Scanner", "WeaponsMinRarity", 4, RangeValidator(1, 5))
 	weaponsMinLevel = ConfigItem("Scanner", "WeaponsMinLevel", 1, RangeValidator(1, 90))
 
 # Application metadata

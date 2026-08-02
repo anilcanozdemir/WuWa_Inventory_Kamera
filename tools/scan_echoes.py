@@ -70,6 +70,10 @@ def watchAbortKey() -> None:
     """
     import win32api
 
+    # Ignore a still-held F12 from a previous abort so the new run is not killed instantly.
+    while win32api.GetAsyncKeyState(ABORT_KEY_VK) & 0x8000:
+        time.sleep(0.05)
+    time.sleep(0.4)
     while True:
         if win32api.GetAsyncKeyState(ABORT_KEY_VK) & 0x8000:
             log.warning("Abort key %s pressed — stopping the scan.", ABORT_KEY_NAME)
@@ -201,13 +205,18 @@ def main() -> int:
     closeInventory(controller, screen)
 
     started = time.time()
-    echoes = echoScraper(controller, screen.scrapers.echoes.x, screen.scrapers.echoes.y, screen)
+    echoes, echoCount = echoScraper(controller, screen.scrapers.echoes.x, screen.scrapers.echoes.y, screen)
     elapsed = round(time.time() - started, 1)
 
     date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     savingScraped({"echoes_wuwainventorykamera.json": (echoes, list)}, date)
 
-    report = {"elapsed_s": elapsed, "export": str(Path(cfg.get(cfg.exportFolder)) / date), **summarise(echoes)}
+    report = {
+        "elapsed_s": elapsed,
+        "export": str(Path(cfg.get(cfg.exportFolder)) / date),
+        "echo_count_ocr": echoCount,
+        **summarise(echoes),
+    }
     (OUT / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     (ROOT / "debug_out" / "_latest_scan.txt").write_text(str(OUT), encoding="utf-8")
     log.info("DONE %s", json.dumps(report))

@@ -119,9 +119,15 @@ class GridPageScroller:
         self.carryPx = 0.0
         self._rateSamples: list[float] = []
         persisted = loadPersistedRate(name)
+        source = name
+        # Weapons/echoes share backpack geometry, but a stale echoes rate makes
+        # weapon page bursts no-op (~7px of 1100). Let weapons calibrate fresh.
         if persisted is not None:
             self.pxPerNotch = persisted
-            logger.info("%s: using persisted wheel rate %.2f px/notch", name, persisted)
+            logger.info(
+                "%s: using %s wheel rate %.2f px/notch",
+                name, source, persisted,
+            )
 
     @property
     def rect(self) -> tuple[int, int, int, int]:
@@ -153,7 +159,17 @@ class GridPageScroller:
 
     def _parkOnGrid(self) -> None:
         x, y, w, h = self.rect
-        self.controller.moveMouse(x + w // 2, y + h // 2, 0.05)
+        # Prefer the right edge (scrollbar / gutter). Parking on a card center and
+        # then wheeling often scrolls the detail panel instead of the list, and
+        # identical weapon icons also make displacement matching unreliable there.
+        self.controller.moveMouse(x + max(w - 12, w // 2), y + h // 2, 0.05)
+
+    def _focusGrid(self) -> None:
+        """Click the gutter so the wheel targets the list, not the detail panel."""
+        x, y, w, h = self.rect
+        self.controller.leftClick(x + max(w - 12, w // 2), y + h // 2)
+        time.sleep(0.08)
+        self._parkOnGrid()
 
     def _wheel(self, downNotches: float, maxChunk: float | None = None) -> None:
         """Scroll down by `downNotches`, chunked so the game cannot clamp the event."""
@@ -212,6 +228,16 @@ class GridPageScroller:
             )
             return config
 
+        # A low-confidence peak far from the configured card pitch (weapons log:
+        # 219px vs 283 config @ score 0.27) makes every page burst under-scroll
+        # and the same cards get clicked again.
+        if abs(pitch - config) / config > 0.12:
+            logger.warning(
+                "%s: row pitch %spx too far from config %.0f (score %.2f) — using config",
+                self.name, pitch, config, score,
+            )
+            return config
+
         logger.info(
             "%s: row pitch %spx (config %.0f, score %.2f)",
             self.name, pitch, config, score,
@@ -247,6 +273,171 @@ class GridPageScroller:
     def _changed(before: np.ndarray, after: np.ndarray) -> bool:
         """True when the grid image actually changed (handles repeating echo cards)."""
         return float(cv2.absdiff(before, after).mean()) >= 1.5
+
+    @staticmethod
+    def _changeMagnitude(before: np.ndarray, after: np.ndarray) -> float:
+        """Mean absdiff — selection glow is ~1–3; a real page jump is usually ≫6."""
+        return float(cv2.absdiff(before, after).mean())
+
+    def _rowStrips(self, grid: np.ndarray) -> list[np.ndarray]:
+        """Downscaled mid-row strips used to measure row shift."""
+        start, offsets = self.grid.start, self.screenInfo.offsets.page
+        cellH = int(start.h)
+        gapY = int(offsets.y)
+        gray = cv2.cvtColor(grid, cv2.COLOR_RGB2GRAY)
+        strips: list[np.ndarray] = []
+        for row in range(self.rows):
+            y0 = row * (cellH + gapY)
+            y1 = min(gray.shape[0], y0 + cellH)
+            strip = gray[y0 + cellH // 4:max(y0 + cellH // 4 + 1, y1 - cellH // 4), :]
+            if strip.size == 0:
+                strips.append(np.zeros((16, 64), dtype=np.uint8))
+                continue
+            strips.append(cv2.resize(strip, (64, 16), interpolation=cv2.INTER_AREA))
+        return strips
+
+    def _cellStrip(self, grid: np.ndarray, row: int, col: int) -> np.ndarray:
+        """Downscaled interior of one card — ignores selection glow on the border."""
+        start, offsets = self.grid.start, self.screenInfo.offsets.page
+        cellW, cellH = int(start.w), int(start.h)
+        gapX, gapY = int(offsets.x), int(offsets.y)
+        gray = cv2.cvtColor(grid, cv2.COLOR_RGB2GRAY)
+        x0 = col * (cellW + gapX)
+        y0 = row * (cellH + gapY)
+        x1 = min(gray.shape[1], x0 + cellW)
+        y1 = min(gray.shape[0], y0 + cellH)
+        # Inset ~18% so the gold selection rim does not flip the match.
+        insetX = max(2, int(cellW * 0.18))
+        insetY = max(2, int(cellH * 0.18))
+        cell = gray[y0 + insetY:max(y0 + insetY + 1, y1 - insetY), x0 + insetX:max(x0 + insetX + 1, x1 - insetX)]
+        if cell.size == 0:
+            return np.zeros((24, 24), dtype=np.uint8)
+        return cv2.resize(cell, (24, 24), interpolation=cv2.INTER_AREA)
+
+    def _rowsMatch(self, a: np.ndarray, b: np.ndarray, rowA: int, rowB: int) -> bool:
+        """True when most cards in rowA of `a` match rowB of `b`."""
+        matches = sum(
+            1 for col in range(self.cols)
+            if self._stripsMatch(self._cellStrip(a, rowA, col), self._cellStrip(b, rowB, col), maxMeanDiff=12.0)
+        )
+        return matches >= max(4, self.cols - 1)
+
+    @staticmethod
+    def _stripsMatch(a: np.ndarray, b: np.ndarray, maxMeanDiff: float = 8.0) -> bool:
+        return float(cv2.absdiff(a, b).mean()) <= maxMeanDiff
+
+    def _overlapRows(self, before: np.ndarray, after: np.ndarray) -> int:
+        """How many leading rows of `after` still match the trailing rows of `before`."""
+        for overlap in range(self.rows, 0, -1):
+            if all(
+                self._rowsMatch(before, after, self.rows - overlap + i, i)
+                for i in range(overlap)
+            ):
+                return overlap
+        return 0
+
+    def _rowsShifted(self, before: np.ndarray, after: np.ndarray) -> int:
+        """How many rows the grid advanced. 0 = same page; -1 = indeterminate."""
+        # Prefer cell-row matching over whole-strip hashes (selection glow).
+        if self._rowsMatch(before, after, 0, 0) and self._rowsMatch(before, after, 1, 1):
+            return 0
+
+        bestShift = 0
+        bestMatches = -1
+        for shift in range(0, self.rows):
+            overlap = self.rows - shift
+            matches = sum(
+                1 for row in range(overlap)
+                if self._rowsMatch(before, after, row + shift, row)
+            )
+            if matches > bestMatches or (matches == bestMatches and shift > bestShift):
+                bestShift, bestMatches = shift, matches
+
+        if bestShift > 0 and bestMatches >= max(1, self.rows - bestShift - 1):
+            return bestShift
+
+        # No overlapping rows matched → either full page of new cards, or noise.
+        # Only claim a full page when the top row clearly changed AND there is
+        # no trailing-row overlap (caller also checks overlap separately).
+        if not self._rowsMatch(before, after, 0, 0) and self._overlapRows(before, after) == 0:
+            return self.rows
+        return 0
+
+    def _pageAdvanced(self, before: np.ndarray, after: np.ndarray) -> bool:
+        """True when a full page of rows moved with no trailing-row overlap."""
+        shifted = self._rowsShifted(before, after)
+        overlap = self._overlapRows(before, after)
+        logger.debug(
+            "%s: row-shift estimate %s/%s overlap=%s",
+            self.name, shifted, self.rows, overlap,
+        )
+        if shifted < 0:
+            return False
+        # A 3/4 shift leaves the last row glued to the next page (extra Hollow).
+        return shifted >= self.rows and overlap == 0
+
+    def _finishPageScroll(self, before: np.ndarray, after: np.ndarray) -> bool:
+        """Nudge remaining rows when a page burst left 1–N rows of overlap."""
+        for _ in range(self.rows):
+            overlap = self._overlapRows(before, after)
+            # Cell-level catch for the common 1-row glue (last Hollow/Marcato row).
+            if overlap <= 0 and self._rowsMatch(before, after, self.rows - 1, 0):
+                overlap = 1
+            if overlap <= 0:
+                shifted = self._rowsShifted(before, after)
+                logger.debug(
+                    "%s: finish page scroll shifted=%s overlap=0",
+                    self.name, shifted,
+                )
+                return shifted >= self.rows
+            logger.warning(
+                "%s: page scroll left %s-row overlap — nudging %s row(s)",
+                self.name, overlap, overlap,
+            )
+            self._focusGrid()
+            if not self._scrollRows(float(overlap)):
+                return False
+            after = self._capture()
+        return self._overlapRows(before, after) == 0 and not self._rowsMatch(
+            before, after, self.rows - 1, 0
+        )
+
+    def _forcePageAdvance(self, before: np.ndarray, target: float) -> bool:
+        """Push config-sized page scrolls until the grid clearly advanced or ends."""
+        current = before
+        for attempt in range(3):
+            self._focusGrid()
+            self._wheel(self.configNotches)
+            after = self._capture()
+            if self._finishPageScroll(before, after):
+                return True
+            moved, _ = self._displacement(before, after)
+            mag = self._changeMagnitude(current, after)
+            logger.debug(
+                "%s: force page attempt %s — moved=%s Δ=%.1f",
+                self.name,
+                attempt + 1,
+                None if moved is None else f'{moved:.0f}px',
+                mag,
+            )
+            if moved is not None and moved >= target * 0.85:
+                return self._finishPageScroll(before, after)
+            shifted = self._rowsShifted(current, after)
+            if shifted < 0 and mag >= 8.0:
+                # Identical-icon wall: trust a strong Δ after a focused page wheel,
+                # then still clear any measurable overlap.
+                return self._finishPageScroll(before, after)
+            if not self._changed(current, after) and attempt > 0:
+                logger.info("%s: grid will not scroll further — treating as end of list", self.name)
+                return False
+            current = after
+        if self._finishPageScroll(before, self._capture()):
+            return True
+        logger.warning(
+            "%s: forced page scroll still did not advance a page — stopping to avoid re-scan",
+            self.name,
+        )
+        return False
 
     def _plannedNotches(self, targetPx: float) -> float:
         if self.pxPerNotch:
@@ -386,7 +577,7 @@ class GridPageScroller:
         """Advance `rowCount` rows with one wheel burst. False at end of list."""
         target = rowCount * self.rowPitch + self.carryPx
 
-        self._parkOnGrid()
+        self._focusGrid()
         before = self._capture()
         sent = self._plannedNotches(target)
         self._wheel(sent)
@@ -394,15 +585,43 @@ class GridPageScroller:
 
         moved, score = self._displacement(before, after)
         if moved is not None and moved > 2:
+            # Catastrophic under-scroll: wheel almost no-op (focus on panel /
+            # submenu). Identical inventory tiles (common for weapons) make
+            # template displacement report ~5-15px even when a full page moved.
+            changeMag = self._changeMagnitude(before, after)
+            if moved < target * 0.25:
+                # Tiny measured move: identical-tile full page or stuck. Always
+                # clear trailing-row overlap before accepting (Hollow re-read).
+                if self._finishPageScroll(before, after):
+                    logger.debug(
+                        "%s: displacement only %.0fpx of %.0f but page finished (Δ=%.1f)",
+                        self.name, moved, target, changeMag,
+                    )
+                    self.carryPx = 0.0
+                    return True
+                logger.warning(
+                    "%s: burst under-scrolled (%.0f of %.0f px, Δ=%.1f) — forcing page notches",
+                    self.name, moved, target, changeMag,
+                )
+                if not self._forcePageAdvance(before, target):
+                    return False
+                self.carryPx = 0.0
+                return True
+
             residual = target - moved
             # With a locked rate, skip the correction pass unless we are clearly
             # off — corrections were doubling the settle cost on every page.
-            if abs(residual) > self.rowPitch * 0.25:
+            # Skip corrections when displacement looks bogus relative to a changed grid.
+            if abs(residual) > self.rowPitch * 0.25 and moved >= target * 0.5:
                 correction = residual / self._effectivePxPerNotch()
                 self._wheel(correction)
-                corrected, _ = self._displacement(before, self._capture())
+                after = self._capture()
+                corrected, _ = self._displacement(before, after)
                 if corrected is not None and abs(target - corrected) < abs(residual):
                     moved = corrected
+            # Even a "good" displacement can leave one row glued (Hollow re-read).
+            if not self._finishPageScroll(before, self._capture()):
+                return False
             limit = self.rowPitch * MAX_CARRY_ROWS
             self.carryPx = max(-limit, min(limit, target - moved))
             logger.debug(
@@ -412,15 +631,28 @@ class GridPageScroller:
             return True
 
         # A whole-page burst leaves almost no shared content, so an unmeasurable
-        # shift is expected. Only an unchanged image means the list really ended.
+        # shift is expected. Confirm with row-band matching when possible.
+        changeMag = self._changeMagnitude(before, after)
+        if self._finishPageScroll(before, after):
+            self.carryPx = -self.rowPitch * 0.1
+            logger.debug(
+                "%s: burst unmeasurable (score %.2f) but page finished (Δ=%.1f, carry %.0fpx)",
+                self.name, score, changeMag, self.carryPx,
+            )
+            return True
         if self._changed(before, after):
+            logger.warning(
+                "%s: burst unmeasurable with no page-advance match (Δ=%.1f) — forcing page notches",
+                self.name, changeMag,
+            )
+            if not self._forcePageAdvance(before, target):
+                return False
             self.carryPx = 0.0
-            logger.debug("%s: burst unmeasurable (score %.2f) but grid changed", self.name, score)
             return True
 
         self._wheel(sent)
         after = self._capture()
-        if self._changed(before, after):
+        if self._finishPageScroll(before, after):
             self.carryPx = 0.0
             return True
 

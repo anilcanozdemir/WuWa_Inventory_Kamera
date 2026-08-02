@@ -357,8 +357,17 @@ def resonatorScraper(controller: WindowsInputController, screenInfo: ScreenInfo)
             )
             resonatorID, stop = scrapeResonator(image, screenInfo, characters, _cache)
             if stop:
-                logger.info("Duplicate resonator %s — roster complete", resonatorID)
-                return dict(characters)
+                # Mid-page "duplicate" is usually a false OCR hit on an already
+                # scraped name; only treat as end-of-roster when the page has not
+                # produced any new character yet (list wrapped to the top).
+                if foundOnPage == 0:
+                    logger.info("Duplicate resonator %s — roster complete", resonatorID)
+                    return dict(characters)
+                logger.warning(
+                    "Skipping duplicate resonator %s mid-page (possible OCR error), have %s",
+                    resonatorID, len(characters),
+                )
+                continue
             if resonatorID:
                 foundOnPage += 1
                 if SCRAPE_WEAPON:

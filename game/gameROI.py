@@ -49,6 +49,8 @@ COORDINATES = {
                 "echoCard": Coordinates(1296, 114, 558, 170),
                 # Circular set badge next to the +level text — no panel scroll needed.
                 "sonataIcon": Coordinates(1394, 196, 33, 33),
+                # +level digits immediately right of the sonata badge.
+                "echoLevel": Coordinates(1432, 193, 68, 38),
                 "sonata": Coordinates(1298, 397, 554, 467),
                 "mouseMovement": Coordinates(1576.5, 665.5),
                 "fullStatsName": Coordinates(1380, 430, 360, 380),
@@ -134,7 +136,9 @@ COORDINATES = {
                 "start": Coordinates(236, 185, 193, 235),
                 "name": Coordinates(1740, 155, 727, 73),
                 "value": Coordinates(2207, 427, 253, 53),
-                "level": Coordinates(2213, 313, 240, 60),
+                # Live-probed 1440p: "Level 80/80" band is ~y=310 (not the old
+                # 2213,313 AT that sat on empty space to the right).
+                "level": Coordinates(1740, 305, 360, 50),
                 "rank": Coordinates(1733, 707, 153, 67)
             },
             "echoes": {
@@ -143,6 +147,8 @@ COORDINATES = {
                 "echoCard": Coordinates(1728, 152, 744, 227),
                 # Circular set badge next to +level (measured off a 1440p capture).
                 "sonataIcon": Coordinates(1859, 261, 44, 44),
+                # +level digits immediately right of the sonata badge.
+                "echoLevel": Coordinates(1910, 258, 90, 50),
                 "sonata": Coordinates(1731, 529, 739, 623),
                 "mouseMovement": Coordinates(2102, 887),
                 "fullStatsName": Coordinates(1840, 573, 480, 507),
@@ -231,6 +237,7 @@ COORDINATES = {
                 "start": Coordinates(180, 104, 130, 162),
                 "echoCard": Coordinates(1136, 152, 486, 152),
                 "sonataIcon": Coordinates(1220, 171, 29, 29),
+                "echoLevel": Coordinates(1254, 168, 60, 34),
                 "sonata": Coordinates(1135, 400, 486, 408),
                 "mouseMovement": Coordinates(1576.5, 665.5),
                 "fullStatsName": Coordinates(1200, 420, 320, 380),

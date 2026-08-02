@@ -1,7 +1,7 @@
 {
   "_comment": "Debug-only snapshot of one inventory, used by tools/scan_echoes.py to verify a scan. The scanner itself reads the echo count from the in-game counter and assumes nothing here. Update or delete this file after farming more echoes.",
-  "_snapshot": "2026-08-01, inventory showed 790/3000",
-  "total": 790,
+  "_snapshot": "Debug-only optional fixture for tools/scan_echoes.py. Update total to match the in-game echo counter when you want a named inventory check; the live scanner never reads this file.",
+  "total": 720,
   "rowStarts": [
     "hyvatia",
     "windlash",

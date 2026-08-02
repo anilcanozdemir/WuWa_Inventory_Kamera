@@ -312,6 +312,7 @@ def parseEchoLevel(lines: list[str]) -> int:
 
     The card usually reads `name / level / cost`, but OCR may drop or reorder
     lines, so prefer any standalone integer in 0..25 over a fixed index.
+    Prefer a non-zero candidate when both cost (1/3/4) and level appear.
     """
     candidates = []
     for text in lines[1:]:
@@ -322,13 +323,36 @@ def parseEchoLevel(lines: list[str]) -> int:
         if 0 <= value <= 25:
             candidates.append(value)
     if candidates:
-        return candidates[0]
+        nonzero = [c for c in candidates if c > 0]
+        return nonzero[0] if nonzero else candidates[0]
     if len(lines) > 2:
         try:
             return min(25, int(lines[2]))
         except (TypeError, ValueError):
             pass
     return 0
+
+
+def _readEchoLevel(image: np.ndarray, screenInfo: ScreenInfo, lines: list[str]) -> int:
+    """Prefer a dedicated +level ROI; fall back to full-card OCR lines."""
+    levelRoi = getattr(screenInfo.echoes, 'echoLevel', None)
+    if levelRoi is not None and levelRoi.w and levelRoi.h:
+        crop = image[
+            int(levelRoi.y):int(levelRoi.y + levelRoi.h),
+            int(levelRoi.x):int(levelRoi.x + levelRoi.w),
+        ]
+        raw = imageToString(
+            convertToBlackWhite(crop), '', allowedChars=string.digits,
+        ).strip()
+        digits = ''.join(ch for ch in raw if ch.isdigit())
+        if digits:
+            try:
+                value = int(digits[:2] if len(digits) > 2 else digits)
+                if 0 <= value <= 25:
+                    return value
+            except ValueError:
+                pass
+    return parseEchoLevel(lines)
 
 
 def processGridEcho(controller: WindowsInputController, screenInfo: ScreenInfo, echoes: list, image: np.ndarray, _cache: dict[str, list]) -> tuple[dict[str, int], list[dict[str, dict[str, int]]]]:
@@ -357,7 +381,7 @@ def processGridEcho(controller: WindowsInputController, screenInfo: ScreenInfo, 
             _cache[echoHash].append(rarity)
         
         if rarity >= cfg.get(cfg.echoMinRarity):
-            level = parseEchoLevel(lines)
+            level = _readEchoLevel(image, screenInfo, lines)
 
             if level >= cfg.get(cfg.echoMinLevel):
                 tuneLv, stats = processStats(image, screenInfo, _cache)
@@ -368,18 +392,19 @@ def processGridEcho(controller: WindowsInputController, screenInfo: ScreenInfo, 
 
     return CELL_MISS
 
-def echoScraper(controller: WindowsInputController, x: float, y: float, screenInfo: ScreenInfo) -> tuple[dict[str, int], list[dict[str, dict[str, int]]]]:
+def echoScraper(controller: WindowsInputController, x: float, y: float, screenInfo: ScreenInfo) -> tuple[list, int]:
+    """Scrape the echo grid. Returns (echoes, inventoryEchoCount)."""
     echoes = list()
     _cache = dict()
     menu = MainMenuController()
 
     if menu.isMenu() and not menu.ensureGameplay(controller):
-        return echoes
+        return echoes, 0
 
     controller.pressKey(cfg.get(cfg.inventoryKeybind), 2, False)
     time.sleep(0.5)
     if menu.isMenu():
-        return echoes
+        return echoes, 0
 
     controller.leftClick(x, y)
 
@@ -389,8 +414,11 @@ def echoScraper(controller: WindowsInputController, x: float, y: float, screenIn
     scroller = GridPageScroller(controller, screenInfo, screenInfo.echoes, ROWS, COLS, 'echoes')
     scroller.scrollToTop(pages)
 
-    for page in range(pages):
+    def _scanPage(page: int) -> tuple[int, str, bool]:
+        """Walk one page of cells. Returns (recognised, lastStatus, done)."""
+        nonlocal missStreak
         pageRecognised = 0
+        pageStatus = CELL_MISS
         for row in range(ROWS):
             for col in range(COLS):
                 # The final page is partly empty; stop once every echo the
@@ -398,17 +426,16 @@ def echoScraper(controller: WindowsInputController, x: float, y: float, screenIn
                 # index against echoCount also handles counts that are an exact
                 # multiple of a page, which the previous remainder check did not.
                 if page * (ROWS * COLS) + row * COLS + col >= echoCount:
-                    del _cache
-                    return echoes
+                    return pageRecognised, pageStatus, True
                 center_x = screenInfo.echoes.start.x + (col * (screenInfo.echoes.start.w + screenInfo.offsets.page.x)) + screenInfo.echoes.start.w // 2
                 center_y = screenInfo.echoes.start.y + (row * (screenInfo.echoes.start.h + screenInfo.offsets.page.y)) + screenInfo.echoes.start.h // 2
 
-                status = _scanCell(controller, screenInfo, echoes, center_x, center_y, _cache)
+                pageStatus = _scanCell(controller, screenInfo, echoes, center_x, center_y, _cache)
 
                 # A run of misses means the panel itself is wrong, not the click.
                 # Reset it and re-read the already-selected card, which caps the
                 # damage at MISS_RESET_STREAK cells instead of a whole page.
-                if status == CELL_MISS:
+                if pageStatus == CELL_MISS:
                     missStreak += 1
                     if missStreak >= MISS_RESET_STREAK:
                         logger.warning(
@@ -416,16 +443,34 @@ def echoScraper(controller: WindowsInputController, x: float, y: float, screenIn
                         )
                         _resetDetailPanel(controller, screenInfo)
                         image = screenshot(width=screenInfo.width, height=screenInfo.height, monitor=screenInfo.monitor)
-                        status = processGridEcho(controller, screenInfo, echoes, image, _cache)
-                        if status != CELL_MISS:
+                        pageStatus = processGridEcho(controller, screenInfo, echoes, image, _cache)
+                        if pageStatus != CELL_MISS:
                             missStreak = 0
+                    # Half a page of misses → grid alignment is wrong; nudge and
+                    # re-click instead of burning the rest of the page as unread.
+                    if pageStatus == CELL_MISS and missStreak >= COLS * 2:
+                        logger.warning(
+                            "Echoes: %s misses — mid-page realign",
+                            missStreak,
+                        )
+                        _resetDetailPanel(controller, screenInfo)
+                        scroller._parkOnGrid()
+                        if scroller.rowPitch and scroller.pxPerNotch:
+                            half = (0.5 * scroller.rowPitch) / scroller.pxPerNotch
+                            scroller._wheel(-half)
+                            time.sleep(0.25)
+                            scroller._wheel(half)
+                            time.sleep(0.25)
+                        missStreak = 0
+                        pageStatus = _scanCell(controller, screenInfo, echoes, center_x, center_y, _cache)
+                        if pageStatus == CELL_MISS:
+                            missStreak = 1
                 else:
                     missStreak = 0
 
-                if status == CELL_STOP:
-                    del _cache
-                    return echoes
-                if status == CELL_OK:
+                if pageStatus == CELL_STOP:
+                    return pageRecognised, pageStatus, True
+                if pageStatus == CELL_OK:
                     pageRecognised += 1
                 else:
                     # Dropped cells shift every later entry, so record exactly
@@ -434,16 +479,60 @@ def echoScraper(controller: WindowsInputController, x: float, y: float, screenIn
                         "Echoes: page %s row %s col %s unread after retry (%s collected so far)",
                         page + 1, row, col, len(echoes),
                     )
+        return pageRecognised, pageStatus, False
+
+    def _realignAfterDeadPage() -> None:
+        """Resettle the grid after a page where every click missed."""
+        _resetDetailPanel(controller, screenInfo)
+        scroller._parkOnGrid()
+        # Nudge up half a row then back so clicks land on cards again if the
+        # previous page burst left the grid half-row misaligned.
+        if scroller.rowPitch and scroller.pxPerNotch:
+            half = (0.5 * scroller.rowPitch) / scroller.pxPerNotch
+            scroller._wheel(-half)
+            time.sleep(0.35)
+            scroller._wheel(half)
+            time.sleep(0.35)
+        else:
+            time.sleep(0.35)
+
+    for page in range(pages):
+        missStreak = 0
+        pageRecognised, status, done = _scanPage(page)
+        if done:
+            del _cache
+            return echoes, echoCount
 
         logger.info("Echoes: page %s/%s scanned, %s collected", page + 1, pages, len(echoes))
         if pageRecognised == 0:
-            logger.warning("Echoes: page %s recognised 0 cards — clicks likely missed the grid", page + 1)
+            logger.warning(
+                "Echoes: page %s recognised 0 cards — realigning and retrying page",
+                page + 1,
+            )
+            _realignAfterDeadPage()
+            # Fresh captures after realign; hashed misses must not poison the retry.
+            _cache.clear()
+            missStreak = 0
+            beforeRetry = len(echoes)
+            pageRecognised, status, done = _scanPage(page)
+            if done:
+                del _cache
+                return echoes, echoCount
+            logger.info(
+                "Echoes: page %s retry recognised %s (collected %s → %s)",
+                page + 1, pageRecognised, beforeRetry, len(echoes),
+            )
+            if pageRecognised == 0:
+                logger.warning(
+                    "Echoes: page %s still recognised 0 cards after retry — clicks likely missed the grid",
+                    page + 1,
+                )
 
         if page < pages - 1 and status != CELL_STOP and not scroller.scrollPage():
             break
 
     del _cache
-    return echoes
+    return echoes, echoCount
 
 
 def _scanCell(controller, screenInfo, echoes, center_x, center_y, _cache) -> str:
