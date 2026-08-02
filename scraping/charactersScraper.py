@@ -942,11 +942,38 @@ def scrapeEquippedEchoes(
         controller.leftClick(slots[0].x, slots[0].y, 0.35)
     time.sleep(0.55)
 
+    def _nameRoiHash(img) -> int:
+        crop = img[
+            int(nameBox.y):int(nameBox.y + nameBox.h),
+            int(nameBox.x):int(nameBox.x + nameBox.w),
+        ]
+        return hash(crop.tobytes()) if crop.size else 0
+
     equipped = {}
+    stale_streak = 0
+    seen_fps: set[tuple] = set()
     for idx, slot in enumerate(slots):
+        before = screenshot(width=screenInfo.width, height=screenInfo.height, monitor=screenInfo.monitor)
+        before_hash = _nameRoiHash(before)
+
         controller.leftClick(slot.x, slot.y, 0.3)
         time.sleep(0.45)
         image = screenshot(width=screenInfo.width, height=screenInfo.height, monitor=screenInfo.monitor)
+        after_hash = _nameRoiHash(image)
+
+        # Empty equipped slot: right panel keeps the previous/bag selection.
+        if after_hash == before_hash:
+            stale_streak += 1
+            logger.debug(
+                "Echo slot %s — detail panel unchanged (empty slot)", idx,
+            )
+            # A run of empties → remaining left-rail slots are empty too.
+            if stale_streak >= 2:
+                logger.info("Echo slots %s+ empty — stop clicking", idx)
+                break
+            continue
+        stale_streak = 0
+
         nameImg = image[nameBox.y:nameBox.y + nameBox.h, nameBox.x:nameBox.x + nameBox.w]
         big = cv2.resize(nameImg, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
         raw = imageToString(big, '', bannedChars=' ').lower()
@@ -1059,6 +1086,24 @@ def scrapeEquippedEchoes(
         }
         if sonata:
             entry['sonata'] = sonata
+
+        # Safety net: empty slots re-read the bag/previous panel as identical copies
+        # (export showed 5× Hyvatia CD44 on characters with no echoes).
+        fp = (
+            str(echoId),
+            int(level),
+            repr((stats or {}).get('main')),
+            repr((stats or {}).get('sub')),
+        )
+        if fp in seen_fps:
+            logger.debug("Echo slot %s duplicate fingerprint %s — skip", idx, echoKey)
+            stale_streak += 1
+            if stale_streak >= 2:
+                break
+            continue
+        seen_fps.add(fp)
+        stale_streak = 0
+
         equipped[str(idx)] = entry
         logger.debug(
             "Echo slot %s → %s lvl=%s sonata=%r main=%s sub=%s",

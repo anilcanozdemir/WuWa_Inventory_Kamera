@@ -128,6 +128,19 @@ def _matchSonataIcon(iconRgb: np.ndarray) -> tuple[str | None, float]:
     return None, bestScore
 
 
+def _sonataIconLooksEmpty(iconRgb: np.ndarray) -> bool:
+    """True when the set badge is blank/unset (no coloured sonata disc)."""
+    if iconRgb is None or iconRgb.size == 0:
+        return True
+    gray = (
+        cv2.cvtColor(iconRgb, cv2.COLOR_RGB2GRAY)
+        if iconRgb.ndim == 3
+        else iconRgb
+    )
+    # Empty badge: low contrast disc, often dark-grey UI chrome.
+    return float(np.std(gray)) < 14.0 or float(np.mean(gray)) < 45.0
+
+
 def findSonataNearPoint(
     image: np.ndarray,
     cx: int,
@@ -367,6 +380,7 @@ def getSonata(
 
     No panel scrolling on the happy path. Unknown badges are OCR'd once via the
     old scroll path and then saved under assets/sonata/ for later matches.
+    Empty / unset badges return '' without scrolling the detail panel.
     """
     iconRoi = getattr(screenInfo.echoes, 'sonataIcon', None)
     if iconRoi is None or not iconRoi.w or not iconRoi.h:
@@ -381,6 +395,13 @@ def getSonata(
     iconHash = hash(icon.tobytes())
     if iconHash in _cache:
         return _cache[iconHash]
+
+    # Unset sonata badge is a flat/dark disc — scrolling the panel is wasted work
+    # and parks the cursor off the grid.
+    if _sonataIconLooksEmpty(icon):
+        logger.debug('sonata icon empty/unset — skip scroll')
+        _cache[iconHash] = ''
+        return ''
 
     name, score = _matchSonataIcon(icon)
     if name:

@@ -17,6 +17,33 @@ from properties.config import cfg, basePATH
 # Constants
 ROWS, COLS = 4, 6
 
+def _normKey(text: str) -> str:
+    """Alnum-only key so OCR can match hyphen / apostrophe variants."""
+    return ''.join(ch for ch in (text or '').lower() if ch.isalnum())
+
+
+def _matchItemName(raw: str) -> str | None:
+    """Fuzzy-match OCR text to an items.json key; None if nothing close enough."""
+    text = _normKey(raw)
+    if not text:
+        return None
+    # OCR often reads Roman III as "lil" / II as "il".
+    variants = [text]
+    if text.endswith('lil'):
+        variants.append(text[:-3] + 'iii')
+    if text.endswith('il') and not text.endswith('lil'):
+        variants.append(text[:-2] + 'ii')
+    keyed = {_normKey(k): k for k in itemsID}
+    for candidate in variants:
+        if candidate in keyed:
+            return keyed[candidate]
+        for cutoff in (0.9, 0.85, 0.8):
+            hit = getMatches(candidate, keyed.keys(), 1, cutoff)
+            if hit:
+                return keyed[hit[0]]
+    return None
+
+
 def processItem(path: Path, image: np.ndarray, screenInfo: ScreenInfo, _cache: dict) -> tuple[dict[str, int], list[dict]]:
     inventory = {}
     failed = []
@@ -30,9 +57,9 @@ def processItem(path: Path, image: np.ndarray, screenInfo: ScreenInfo, _cache: d
     else:
         info = imageToString(infoImage, bannedChars=' ').lower().split('\n')
         _cache[infoHash] = info
-    name = info[0]
-    result = getMatches(name, itemsID, 1, 0.9)
-    if result: name = result[0]
+    rawName = info[0] if info else ''
+    matched = _matchItemName(rawName)
+    name = matched if matched else rawName
     
     try: value = re.sub(r'[^0-9]', '', info[2])
     except: value = 1
@@ -47,7 +74,7 @@ def processItem(path: Path, image: np.ndarray, screenInfo: ScreenInfo, _cache: d
         path.mkdir(parents=True, exist_ok=True)
         descImage = image[screenInfo.items.description.y:screenInfo.items.description.y + screenInfo.items.description.h, screenInfo.items.description.x:screenInfo.items.description.x + screenInfo.items.description.w]
 
-        imagePath = path / f'_{name}-{time.time()}.png'
+        imagePath = path / f'_{rawName}-{time.time()}.png'
         cv2.imwrite(imagePath, descImage)
 
         failed.append({

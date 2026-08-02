@@ -1,0 +1,9 @@
+{
+  "_comment": "Weapons not yet present in Dimbreath/WutheringData WeaponConf/MultiText. Merged into weapons.json by DataUpdater.updateItems.",
+  "azureoath": {
+    "id": 21020096,
+    "name": "Azure Oath",
+    "rarity": 5,
+    "image": "Aki/Weapon/WeaponIcon/UI_Weapon250_Sword_35_UI.png"
+  }
+}

@@ -118,40 +118,103 @@ class DataUpdater(QObject):
 		with open(f'./data/{filename}', 'w', encoding='utf-8') as f:
 			json.dump(data, f, indent=4)
 
-	def updateItems(self):
-		if not (Path('data') / 'items.json').is_file():
-			logger.info('Updating items.json...')
+	def _loadExtras(self, filename: str) -> dict:
+		extra = {}
+		for path in (
+			Path(__file__).resolve().parent / filename,
+			Path('data') / filename,
+		):
 			try:
+				payload = json.loads(path.read_text(encoding='utf-8'))
+			except (FileNotFoundError, json.JSONDecodeError, OSError):
+				continue
+			if isinstance(payload, dict):
+				extra.update(payload)
+		return extra
+
+	def _mergeItemExtras(self, data: dict, filename: str) -> int:
+		"""Merge hand-curated id/name entries (Dimbreath lag). Returns added count."""
+		extra = self._loadExtras(filename)
+		added = 0
+		for key, value in extra.items():
+			if key.startswith('_') or not isinstance(value, dict):
+				continue
+			itemId = value.get('id')
+			if itemId is None:
+				continue
+			entry = dict(value)
+			entry.setdefault('name', key)
+			if key not in data:
+				added += 1
+			data[key] = {**data.get(key, {}), **entry}
+		return added
+
+	def updateItems(self, forceRebuild: bool = False):
+		itemsPath = Path('data') / 'items.json'
+		weaponsPath = Path('data') / 'weapons.json'
+		shouldRebuild = forceRebuild or self.updated or (not itemsPath.is_file()) or (not weaponsPath.is_file())
+
+		try:
+			if shouldRebuild:
+				logger.info('Updating items.json / weapons.json from MultiText...')
 				infoText = self.loadJson('MultiText.json')
 				itemInfo = self.loadJson('ItemInfo.json')
 				weaponInfo = self.loadJson('WeaponConf.json')
+				if not infoText or not itemInfo:
+					raise ValueError('MultiText/ItemInfo missing; cannot rebuild items')
 
-				items = {
-					infoText[item['Name']].lower().replace(' ', ''): {
+				items = {}
+				for item in itemInfo:
+					if item['Name'] not in infoText:
+						continue
+					key = infoText[item['Name']].lower().replace(' ', '')
+					icon = item.get('Icon') or ''
+					image = (
+						icon.split('/Image/')[1].rsplit('.', 1)[0] + '.png'
+						if '/Image/' in icon else ''
+					)
+					items[key] = {
 						'id': item['Id'],
 						'name': infoText[item['Name']],
-						'image': item['Icon'].split('/Image/')[1].rsplit('.', 1)[0] + '.png'
+						'image': image,
 					}
-					for item in itemInfo if item['Name'] in infoText
-				}
-				weapons = {
-					infoText[weapon['WeaponName']].lower().replace(' ', ''): {
+
+				weapons = {}
+				for weapon in weaponInfo:
+					if weapon['WeaponName'] not in infoText:
+						continue
+					key = infoText[weapon['WeaponName']].lower().replace(' ', '')
+					icon = weapon.get('Icon') or ''
+					image = (
+						icon.split('/Image/')[1].rsplit('.', 1)[0] + '.png'
+						if '/Image/' in icon else ''
+					)
+					weapons[key] = {
 						'id': weapon['ModelId'],
 						'name': infoText[weapon['WeaponName']],
 						'rarity': weapon['QualityId'],
-						'image': weapon['Icon'].split('/Image/')[1].rsplit('.', 1)[0] + '.png'
+						'image': image,
 					}
-					for weapon in weaponInfo if weapon['WeaponName'] in infoText
-				}
+			else:
+				items = self.loadJson('items.json')
+				weapons = self.loadJson('weapons.json')
 
-				self.saveJson(items, 'items.json')
-				self.saveJson(weapons, 'weapons.json')
+			addedItems = self._mergeItemExtras(items, 'items_extra.json')
+			addedWeapons = self._mergeItemExtras(weapons, 'weapons_extra.json')
+			if addedItems:
+				logger.info('Merged %s entries from items_extra.json', addedItems)
+			if addedWeapons:
+				logger.info('Merged %s entries from weapons_extra.json', addedWeapons)
 
-				itemsID.update(items)
-				weaponsID.update(weapons)
-				
-			except Exception as e:
-				logger.error(f'Failed to update items.json. Error: {e}', exc_info=True)
+			self.saveJson(items, 'items.json')
+			self.saveJson(weapons, 'weapons.json')
+			itemsID.clear()
+			itemsID.update(items)
+			weaponsID.clear()
+			weaponsID.update(weapons)
+
+		except Exception as e:
+			logger.error(f'Failed to update items.json. Error: {e}', exc_info=True)
 
 	def updateJsonFromPattern(self, fileName: str, pattern: str, transformFunc):
 		logger.info(f'Updating {fileName}...')
@@ -368,7 +431,7 @@ class DataUpdater(QObject):
 		self.installSidecars()
 		self.updateFiles()
 		if self.updated:
-			self.updateItems()
+			self.updateItems(forceRebuild=True)
 			self.updateEchoStats()
 			self.updateSonata()
 			self.updateDefinedText()
@@ -377,6 +440,8 @@ class DataUpdater(QObject):
 			self.updateEcho()
 		else:
 			try:
+				# Still merge hand-curated extras when Dimbreath files are unchanged.
+				self.updateItems(forceRebuild=False)
 				self.updateCharacters()
 				self.updateEcho()
 				self.updateSonata()
