@@ -24,6 +24,8 @@ def loadFile(filePATH: str, default = {}) -> dict:
 
 itemsID: dict = loadFile('./data/items.json')
 charactersID: dict = loadFile('./data/characters.json')
+# Custom in-game names → canonical characters.json key (e.g. luukherssen → xiangliyao).
+characterAliases: dict = loadFile('./data/character_aliases.json')
 weaponsID: dict = loadFile('./data/weapons.json')
 echoesID: dict = loadFile('./data/echoes.json')
 achievementsID: dict = loadFile('./data/achievements.json')

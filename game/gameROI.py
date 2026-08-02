@@ -66,13 +66,14 @@ COORDINATES = {
             "characters": {
                 "offsets": {
                     "leftSide": Coordinates(y=136),
-                    "rightSide": Coordinates(y=106),
+                    "rightSide": Coordinates(y=135),
                     "skillPosition": Coordinates(y=255)
                 },
                 "leftSide": Coordinates(82, 191),
-                "rightSide": Coordinates(1814, 203.50),
+                "rightSide": Coordinates(1810, 208),
+                "rosterSlots": 6,
                 # Terminal pause-menu grid → Resonators tile (scaled from 1440p calib).
-                "terminalResonators": Coordinates(863, 525),
+                "terminalResonators": Coordinates(953, 510),
                 "resonatorName": Coordinates(250, 110, 280, 50),
                 "resonatorLevel": Coordinates(180, 200, 135, 80),
                 "weaponName": Coordinates(257, 126, 273, 34),
@@ -117,7 +118,9 @@ COORDINATES = {
                 # 4/3 to -42, then to a pixel-derived -64.46, made each "page"
                 # jump ~8 rows and skip half the inventory.
                 "page": Coordinates(y=-31.25),
-                "characters": Coordinates(y=-75),
+                # Wheel notches to advance one roster "page" after scanning 6 slots.
+                # Pixel-drag of 6*180 overshot (Raven → Danjin). -5 ≈ next window.
+                "characters": Coordinates(y=-5),
                 "sonata": Coordinates(y=93)
             },
             "scrapers": {
@@ -163,39 +166,101 @@ COORDINATES = {
             },
             "characters": {
                 "offsets": {
-                    "leftSide": Coordinates(y=100),
-                    "rightSide": Coordinates(y=140),
-                    "skillPosition": Coordinates(y=340)
+                    # Measured off open_chars overview: tab centers ~180px apart.
+                    "leftSide": Coordinates(y=180),
+                    # Live-recorded 2026-08-02 roster (tools/record_roster_clicks.py).
+                    "rightSide": Coordinates(y=174),
+                    # Fallback uniform step (legacy). Prefer skillNodeOffsets below.
+                    "skillPosition": Coordinates(y=350)
                 },
+                # Overview tab (active ring). Also discoverable via header OCR.
                 "leftSide": Coordinates(108, 254),
-                "rightSide": Coordinates(2418, 270),
-                # Live-calibrated on Terminal grid (Resonators tile center).
-                "terminalResonators": Coordinates(1150, 700),
+                "tabOverview": Coordinates(108, 254),
+                "tabWeapon": Coordinates(108, 434),
+                "tabEcho": Coordinates(108, 624),
+                "tabForte": Coordinates(108, 814),
+                "tabChain": Coordinates(108, 975),
+                # Candidate Y list used when discovering tabs by header OCR.
+                "tabStripYs": [254, 434, 624, 814, 975],
+                # Live-recorded 2026-08-02 timed page jump (~4.16s) → data/roster_page_jump.json
+                "rightSide": Coordinates(2410, 301),
+                "rosterSlots": 6,
+                "rosterSlotYs": [301, 461, 648, 828, 990, 1167],
+                "pageJumpDrag": -1072,
+                "pageJumpDurationS": 4.159,
+                "pageJumpStart": Coordinates(2417, 1180),
+                "pageJumpEnd": Coordinates(2414, 108),
+                # Live-calibrated 2026-08-02: OCR "Resonators" label ~(1271,792);
+                # icon center sits above the label in the middle-left grid cell.
+                "terminalResonators": Coordinates(1270, 680),
                 "resonatorName": Coordinates(260, 248, 520, 56),
-                "resonatorLevel": Coordinates(260, 318, 420, 56),
-                "weaponName": Coordinates(343, 168, 364, 45),
-                "weaponLevel": Coordinates(340, 213, 147, 47),
-                "weaponRank": Coordinates(233, 473, 127, 47),
+                # Tight box around "Lv.80/80" — wide crop only OCR'd "/80" / "Lv.8.80".
+                "resonatorLevel": Coordinates(300, 345, 180, 45),
+                # Live-recorded 2026-08-02 Weapon tab (tools/record_weapon_rois.py).
+                # Level box widened to inventory-style width so "Level 80/80" isn't clipped.
+                "weaponName": Coordinates(270, 264, 464, 51),
+                "weaponLevel": Coordinates(271, 335, 360, 50),
+                "weaponRank": Coordinates(276, 565, 104, 43),
+                # Unused on modern Forte (tree already visible). Kept for 1080p parity.
                 "skillClick": Coordinates(614, 1204),
-                "skillLevel": Coordinates(520, 133, 93, 53),
-                "skillButton": Coordinates(267, 1307, 160, 47),
-                "chainClick": Coordinates(1687, 180),
-                "chainButton": Coordinates(456, 1285, 147, 43),
+                # Left detail panel "Lv. 8" — OCR needs 2× upscale of this crop.
+                "skillLevel": Coordinates(640, 110, 180, 70),
+                # "Activated" label on node detail (left panel bottom). Also searched wider in code.
+                "skillButton": Coordinates(200, 1220, 400, 100),
+                # Upstream chainClick (1265,135) × 4/3 — first click on the RC graphic, not the tab.
+                "chainClick": Coordinates(1270, 1271),
+                "chainButton": Coordinates(369, 1108, 160, 48),
+                # Live-recorded 2026-08-02 (tools/record_forte_clicks.py).
                 "skillPositions": [
-                    Coordinates(1007, 1207),
-                    Coordinates(1313, 1020),
-                    Coordinates(1680, 940),
-                    Coordinates(2047, 1020),
-                    Coordinates(2347, 1207)
+                    Coordinates(622, 1178),  # Normal Attack
+                    Coordinates(915, 1007),  # Resonance
+                    Coordinates(1289, 918),  # Forte
+                    Coordinates(1635, 996),  # Liberation
+                    Coordinates(1934, 1148), # Intro
+                ],
+                # Y deltas above each skill (recorded node clicks).
+                "skillNodeOffsets": [
+                    [336, 644],
+                    [349, 649],
+                    [300, 604],
+                    [343, 611],
+                    [318, 607],
+                ],
+                # Absolute node clicks (same recording) — preferred when present.
+                "skillNodes": [
+                    [Coordinates(620, 842), Coordinates(637, 534)],
+                    [Coordinates(909, 658), Coordinates(920, 358)],
+                    [Coordinates(1292, 618), Coordinates(1295, 314)],
+                    [Coordinates(1619, 653), Coordinates(1622, 385)],
+                    [Coordinates(1923, 830), Coordinates(1953, 541)],
                 ],
                 "chainPositions": [
-                    Coordinates(1860, 187),
-                    Coordinates(2087, 407),
-                    Coordinates(2187, 713),
-                    Coordinates(2087, 1020),
-                    Coordinates(1867, 1247),
-                    Coordinates(1560, 1327)
-                ]
+                    Coordinates(1270, 1271),
+                    Coordinates(1500, 1203),
+                    Coordinates(1712, 1091),
+                    Coordinates(1922, 854),
+                    Coordinates(2021, 682),
+                    Coordinates(2074, 365)
+                ],
+                # Character Echo equip UI — live-recorded 2026-08-02 (record_echo_rois.py).
+                # Enter from overview arc → left-rail slots; right panel = name/level/sonata/stats.
+                "echoEnterClick": Coordinates(1957, 333),
+                "echoSlotPositions": [
+                    Coordinates(175, 325),
+                    Coordinates(178, 529),
+                    Coordinates(147, 701),
+                    Coordinates(157, 812),
+                    Coordinates(142, 970),
+                ],
+                "echoDetailName": Coordinates(2002, 202, 358, 31),
+                "echoDetailLevel": Coordinates(2355, 190, 90, 45),
+                # Live-recorded 2026-08-02 (tools/record_echo_stats_rois.py).
+                "echoFullStatsName": Coordinates(2053, 308, 326, 319),
+                "echoFullStatsValue": Coordinates(2367, 312, 92, 314),
+                # Echo overview left panel — "Sonata Effect" / set name (N/5).
+                "echoOverviewSonata": Coordinates(200, 980, 560, 200),
+                # Equip UI right-panel strip (skill / equipped set line).
+                "echoSonataText": Coordinates(1980, 750, 520, 450),
             }
         }
     },

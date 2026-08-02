@@ -1,5 +1,6 @@
 import re
 import json
+import shutil
 import urllib.request
 import logging
 from babel import Locale
@@ -9,7 +10,7 @@ from PySide6.QtCore import QObject, Signal
 
 from properties.config import cfg
 from scraping.utils import (
-	itemsID, charactersID, weaponsID,
+	itemsID, charactersID, characterAliases, weaponsID,
 	echoesID, achievementsID, echoStats,
 	definedText, sonataName
 )
@@ -176,7 +177,31 @@ class DataUpdater(QObject):
 			r'^RoleInfo_(\d+)_Name$',
 			lambda text, match: text.lower().replace(' ', '') if int(match.group(1)) < 5000 else None
 		)
+		# Dimbreath MultiText lags live client for new SP forms (Yangyang: Xuanling 1610).
+		extra = {}
+		for path in (
+			Path(__file__).resolve().parent / 'characters_extra.json',
+			Path('data') / 'characters_extra.json',
+		):
+			try:
+				payload = json.loads(path.read_text(encoding='utf-8'))
+			except (FileNotFoundError, json.JSONDecodeError, OSError):
+				continue
+			extra.update(payload)
+		if data is None:
+			data = self.loadJson('characters.json')
+		added = 0
+		for key, value in extra.items():
+			if key.startswith('_') or not isinstance(value, int):
+				continue
+			if key not in data:
+				added += 1
+			data[key] = value
+		if added:
+			logger.info('Merged %s entries from characters_extra.json', added)
+		self.saveJson(data, 'characters.json')
 		if data:
+			charactersID.clear()
 			charactersID.update(data)
 
 	def updateEcho(self):
@@ -262,8 +287,63 @@ class DataUpdater(QObject):
 			r'^PhantomFetter_(\d+)_Name$',
 			lambda text, _: text.lower().replace(' ', '')
 		)
+		extra = {}
+		for path in (
+			Path(__file__).resolve().parent / 'sonata_extra.json',
+			Path('data') / 'sonata_extra.json',
+		):
+			try:
+				payload = json.loads(path.read_text(encoding='utf-8'))
+			except (FileNotFoundError, json.JSONDecodeError, OSError):
+				continue
+			extra.update(payload)
+		if data is None:
+			try:
+				data = self.loadJson('sonataName.json')
+			except Exception:
+				data = {}
+		if not isinstance(data, dict):
+			data = {}
+		added = 0
+		for key, value in extra.items():
+			if key.startswith('_') or not isinstance(value, int):
+				continue
+			if key not in data:
+				added += 1
+			data[key] = value
+		if added:
+			logger.info('Merged %s entries from sonata_extra.json', added)
 		if data:
+			self.saveJson(data, 'sonataName.json')
+			sonataName.clear()
 			sonataName.extend(list(data))
+
+	def installSidecars(self):
+		"""Copy gitignored calib/alias JSON from the updater package into ./data."""
+		Path('data').mkdir(parents=True, exist_ok=True)
+		here = Path(__file__).resolve().parent
+		for name in ('character_aliases.json', 'roster_page_jump.json'):
+			src = here / name
+			dst = Path('data') / name
+			if not src.is_file():
+				continue
+			try:
+				if (not dst.is_file()) or (src.stat().st_mtime > dst.stat().st_mtime):
+					shutil.copy2(src, dst)
+					logger.info('Installed sidecar %s', name)
+			except OSError:
+				logger.debug('Failed installing sidecar %s', name, exc_info=True)
+		aliasPath = Path('data') / 'character_aliases.json'
+		if aliasPath.is_file():
+			try:
+				payload = json.loads(aliasPath.read_text(encoding='utf-8'))
+				if isinstance(payload, dict):
+					characterAliases.clear()
+					characterAliases.update({
+						str(k): v for k, v in payload.items() if not str(k).startswith('_')
+					})
+			except (json.JSONDecodeError, OSError):
+				logger.debug('Failed reloading character_aliases.json', exc_info=True)
 
 	def updateDefinedText(self):
 		textKey = [
@@ -285,6 +365,7 @@ class DataUpdater(QObject):
 			logger.error(f'Failed to update definedText. Error: {e}', exc_info=True)
 
 	def run(self):
+		self.installSidecars()
 		self.updateFiles()
 		if self.updated:
 			self.updateItems()
@@ -294,4 +375,12 @@ class DataUpdater(QObject):
 			self.updateAchievements()
 			self.updateCharacters()
 			self.updateEcho()
+		else:
+			try:
+				self.updateCharacters()
+				self.updateEcho()
+				self.updateSonata()
+			except Exception:
+				logger.debug('Extra merge without MultiText refresh failed', exc_info=True)
+			self.installSidecars()
 		self.updateFinished.emit()

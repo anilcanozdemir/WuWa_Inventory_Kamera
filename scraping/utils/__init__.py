@@ -1,5 +1,5 @@
 from scraping.utils.common import (
-    itemsID, charactersID, weaponsID,
+    itemsID, charactersID, characterAliases, weaponsID,
     echoesID, achievementsID, echoStats,
     definedText, sonataName
 )

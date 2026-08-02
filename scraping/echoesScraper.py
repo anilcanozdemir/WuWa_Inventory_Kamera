@@ -94,6 +94,26 @@ def _innerPatch(canonBgr: np.ndarray) -> np.ndarray:
     return canonBgr[off:off + SONATA_TEMPLATE_INNER, off:off + SONATA_TEMPLATE_INNER]
 
 
+def _rankSonataIcon(iconRgb: np.ndarray) -> tuple[str | None, float, float]:
+    """Return (bestName, bestScore, margin) without applying the accept threshold."""
+    if iconRgb is None or iconRgb.size == 0:
+        return None, 0.0, 0.0
+
+    hay = _canon(cv2.cvtColor(iconRgb, cv2.COLOR_RGB2BGR))
+    scored: list[tuple[float, str]] = []
+    for name, template in _loadSonataTemplates():
+        result = cv2.matchTemplate(hay, _innerPatch(_canon(template)), cv2.TM_CCOEFF_NORMED)
+        if result.size:
+            scored.append((float(result.max()), name))
+    if not scored:
+        return None, 0.0, 0.0
+
+    scored.sort(reverse=True)
+    bestScore, bestName = scored[0]
+    margin = bestScore - scored[1][0] if len(scored) > 1 else 1.0
+    return bestName, bestScore, margin
+
+
 def _matchSonataIcon(iconRgb: np.ndarray) -> tuple[str | None, float]:
     """Return (sonataName, score) for the best template match, or (None, score).
 
@@ -102,26 +122,61 @@ def _matchSonataIcon(iconRgb: np.ndarray) -> tuple[str | None, float]:
     match must also beat the runner-up by a margin, which is what keeps a badge
     that has no template yet from being mistaken for the nearest one it resembles.
     """
-    if iconRgb is None or iconRgb.size == 0:
-        return None, 0.0
-
-    # Templates on disk are BGR; the live crop is RGB. Compare in a common
-    # order by flipping the live crop's channels to BGR.
-    hay = _canon(cv2.cvtColor(iconRgb, cv2.COLOR_RGB2BGR))
-    scored: list[tuple[float, str]] = []
-    for name, template in _loadSonataTemplates():
-        result = cv2.matchTemplate(hay, _innerPatch(_canon(template)), cv2.TM_CCOEFF_NORMED)
-        if result.size:
-            scored.append((float(result.max()), name))
-    if not scored:
-        return None, 0.0
-
-    scored.sort(reverse=True)
-    bestScore, bestName = scored[0]
-    margin = bestScore - scored[1][0] if len(scored) > 1 else 1.0
-    if bestScore >= SONATA_MATCH_MIN and margin >= SONATA_MATCH_MARGIN:
+    bestName, bestScore, margin = _rankSonataIcon(iconRgb)
+    if bestName and bestScore >= SONATA_MATCH_MIN and margin >= SONATA_MATCH_MARGIN:
         return bestName, bestScore
     return None, bestScore
+
+
+def findSonataNearPoint(
+    image: np.ndarray,
+    cx: int,
+    cy: int,
+    *,
+    searchW: int = 100,
+    searchH: int = 90,
+    win: int = 44,
+    step: int = 5,
+    minScore: float | None = None,
+) -> tuple[str | None, float]:
+    """Slide a window around the left-rail echo badge (SW of slot center)."""
+    if image is None or image.size == 0:
+        return None, 0.0
+    threshold = SONATA_MATCH_MIN if minScore is None else float(minScore)
+    # Badge sits on the lower-left of the circular portrait.
+    x0 = max(0, int(cx - 65))
+    y0 = max(0, int(cy + 8))
+    x1 = min(image.shape[1], x0 + searchW)
+    y1 = min(image.shape[0], y0 + searchH)
+    region = image[y0:y1, x0:x1]
+    if region.size == 0 or region.shape[0] < win or region.shape[1] < win:
+        return None, 0.0
+
+    bestName, bestScore, bestMargin = None, -1.0, 0.0
+    for y in range(0, region.shape[0] - win + 1, step):
+        for x in range(0, region.shape[1] - win + 1, step):
+            crop = region[y:y + win, x:x + win]
+            name, score, margin = _rankSonataIcon(crop)
+            if score > bestScore:
+                bestName, bestScore, bestMargin = name, score, margin
+    if bestName and bestScore >= threshold and bestMargin >= SONATA_MATCH_MARGIN:
+        return bestName, bestScore
+    return None, bestScore
+
+
+def matchSonataByText(text: str) -> str:
+    """Pick the longest sonataName key that appears in OCR text."""
+    import re
+
+    compact = re.sub(r'[^a-z]', '', (text or '').lower())
+    if not compact:
+        return ''
+    best = ''
+    for name in sonataName:
+        key = re.sub(r'[^a-z]', '', (name or '').lower())
+        if key and key in compact and len(key) > len(re.sub(r'[^a-z]', '', best)):
+            best = name
+    return best
 
 def matchStats(text):
     stats = set(echoStats)
@@ -138,6 +193,26 @@ def matchStats(text):
             results.append(text[i])
         i += 1
     return results
+
+
+def _normalizeStatTokens(lines: list[str]) -> list[str]:
+    """Clean OCR junk before matchStats (COST row, sword-icon → XATK, etc.)."""
+    import re
+
+    out = []
+    for raw in lines:
+        s = re.sub(r'[^a-z]', '', (raw or '').lower())
+        if not s or s in ('cost', 'cos', 'c'):
+            continue
+        # Crossed-swords icon often OCR'd as a leading junk letter on ATK.
+        for junk in ('x', 'i', 'l', 'z', 'v', 'k'):
+            if s.startswith(junk) and s[1:] in echoStats:
+                s = s[1:]
+                break
+        if s not in echoStats and s.endswith('atk') and len(s) <= 5:
+            s = 'atk'
+        out.append(s)
+    return out
 
 def setupRarityDetection():
     rarityColors = {
@@ -183,37 +258,55 @@ def processEcho(name: str, level: int, tuneLv: int, sonata: str, rarity: int, st
         }
     }
 
-def processStats(image: np.ndarray, screenInfo: ScreenInfo, _cache: dict) -> dict[str:int]:
+def processStats(
+    image: np.ndarray,
+    screenInfo: ScreenInfo,
+    _cache: dict,
+    nameRoi=None,
+    valueRoi=None,
+) -> dict[str:int]:
     stats = defaultdict(dict)
     tuneLv = 0
 
+    nameRoi = nameRoi or screenInfo.echoes.fullStatsName
+    valueRoi = valueRoi or screenInfo.echoes.fullStatsValue
+
+    # Keep color for names — B&W turns the ATK sword icon into a leading 'X' (XATK).
     nameImage = image[
-        screenInfo.echoes.fullStatsName.y:screenInfo.echoes.fullStatsName.y + screenInfo.echoes.fullStatsName.h,
-        screenInfo.echoes.fullStatsName.x:screenInfo.echoes.fullStatsName.x + screenInfo.echoes.fullStatsName.w
+        int(nameRoi.y):int(nameRoi.y + nameRoi.h),
+        int(nameRoi.x):int(nameRoi.x + nameRoi.w),
     ]
-    nameImage = convertToBlackWhite(nameImage)
     nameHash = hash(nameImage.tobytes())
 
     valueImage = image[
-        screenInfo.echoes.fullStatsValue.y:screenInfo.echoes.fullStatsValue.y + screenInfo.echoes.fullStatsValue.h,
-        screenInfo.echoes.fullStatsValue.x:screenInfo.echoes.fullStatsValue.x + screenInfo.echoes.fullStatsValue.w
+        int(valueRoi.y):int(valueRoi.y + valueRoi.h),
+        int(valueRoi.x):int(valueRoi.x + valueRoi.w),
     ]
-    valueImage = convertToBlackWhite(valueImage)
-    valueHash = hash(valueImage.tobytes())
+    valueBw = convertToBlackWhite(valueImage)
+    valueHash = hash(valueBw.tobytes())
 
     if nameHash in _cache:
         names = _cache[nameHash]
     else:
-        names = imageToString(nameImage, allowedChars=string.ascii_letters).lower().split('\n')
-        names = matchStats(names)
+        nameBig = cv2.resize(nameImage, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        raw = imageToString(nameBig, allowedChars=string.ascii_letters).lower().split('\n')
+        names = matchStats(_normalizeStatTokens(raw))
+        if len(names) < 2:
+            bw = convertToBlackWhite(nameBig)
+            raw = imageToString(bw, allowedChars=string.ascii_letters).lower().split('\n')
+            names = matchStats(_normalizeStatTokens(raw))
         _cache[nameHash] = names
 
     if valueHash in _cache:
         values = _cache[valueHash]
     else:
-        values = imageToString(valueImage, allowedChars=string.digits + '.%').split()
+        valueBig = cv2.resize(valueBw, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        values = imageToString(valueBig, allowedChars=string.digits + '.%').split()
+        if len(values) < 2:
+            values = imageToString(valueBw, allowedChars=string.digits + '.%').split()
         _cache[valueHash] = values
     tuneLv = max(0, len(values) - 2)
+    logger.debug("Echo stats OCR names=%r values=%r", names, values)
 
 
     for index, (statName, statValue) in enumerate(zip(names, values)):

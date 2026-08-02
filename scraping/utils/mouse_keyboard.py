@@ -114,6 +114,74 @@ class WindowsInputController:
         scaledAmount = int(amount * 120)
         win32api.mouse_event(win32con.MOUSEEVENTF_WHEEL, 0, 0, scaledAmount, 0)
         time.sleep(waitTime)
+
+    def dragMouse(
+        self,
+        x1: Union[int, float],
+        y1: Union[int, float],
+        x2: Union[int, float],
+        y2: Union[int, float],
+        steps: int = 12,
+        waitTime: float = 0.15,
+        stepDelay: float = 0.012,
+    ) -> None:
+        """
+        Click-drag from (x1,y1) to (x2,y2) in monitor-relative coords.
+
+        Used for roster lists where wheel notches skip portraits.
+        """
+        steps = max(2, int(steps))
+        self.moveMouse(x1, y1, 0.05)
+        try:
+            cx, cy = win32api.GetCursorPos()
+        except Exception:
+            cx = int(x1) + self.monitor["left"]
+            cy = int(y1) + self.monitor["top"]
+        win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, cx, cy, 0, 0)
+        time.sleep(0.05)
+        for i in range(1, steps + 1):
+            t = i / steps
+            x = x1 + (x2 - x1) * t
+            y = y1 + (y2 - y1) * t
+            self.moveMouse(x, y, stepDelay)
+        try:
+            cx, cy = win32api.GetCursorPos()
+        except Exception:
+            cx = int(x2) + self.monitor["left"]
+            cy = int(y2) + self.monitor["top"]
+        win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, cx, cy, 0, 0)
+        time.sleep(waitTime)
+
+    def dragMousePath(
+        self,
+        samples: list[dict],
+        waitTime: float = 0.35,
+    ) -> None:
+        """Replay a timed drag path: samples=[{t,x,y}, ...] with t in seconds from start."""
+        if not samples or len(samples) < 2:
+            return
+        x0, y0 = float(samples[0]["x"]), float(samples[0]["y"])
+        self.moveMouse(x0, y0, 0.05)
+        try:
+            cx, cy = win32api.GetCursorPos()
+        except Exception:
+            cx = int(x0) + self.monitor["left"]
+            cy = int(y0) + self.monitor["top"]
+        win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, cx, cy, 0, 0)
+        time.sleep(0.03)
+        prev_t = float(samples[0].get("t", 0.0))
+        for s in samples[1:]:
+            t = float(s.get("t", prev_t))
+            dt = max(0.0, t - prev_t)
+            self.moveMouse(float(s["x"]), float(s["y"]), dt if dt > 0 else 0.008)
+            prev_t = t
+        try:
+            cx, cy = win32api.GetCursorPos()
+        except Exception:
+            cx = int(samples[-1]["x"]) + self.monitor["left"]
+            cy = int(samples[-1]["y"]) + self.monitor["top"]
+        win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, cx, cy, 0, 0)
+        time.sleep(waitTime)
     
     def moveMouse(self, x: Union[int, float], y: Union[int, float], waitTime: float = 0.1) -> None:
         """
